@@ -180,8 +180,7 @@ CEC_data_clearn_and_combine/
 ├── utils/                          # 工具函數（預留）
 │   └── __init__.py
 ├── main.py                         # 主程式入口
-├── all_test.py                     # 整合測試腳本
-├── 統一處理系統說明.md              # 詳細技術文件
+├── correctness_test.py                     # 整合測試腳本
 └── README.md                       # 本說明文件
 ```
 
@@ -215,12 +214,12 @@ python3 main.py --year 2020
 
 ### 3. 執行驗證測試
 
-本系統包含整合測試腳本 `all_test.py`，用於驗證處理後的資料品質。
+本系統包含整合測試腳本 `correctness_test.py`，用於驗證處理後的資料品質。
 
 #### 測試所有縣市
 
 ```bash
-python3 all_test.py
+python3 correctness_test.py
 ```
 
 輸出範例：
