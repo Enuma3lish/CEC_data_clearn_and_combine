@@ -1,8 +1,8 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-CEC Data Consolidation Utilities
+Utils 模組
+工具函數模組（目前為空，保留供未來使用）
 """
 
-from .regional_codes import RegionalCodeManager
-from .schemas import UnifiedSchema, FieldMapper
-
-__all__ = ['RegionalCodeManager', 'UnifiedSchema', 'FieldMapper']
+__all__ = []
