@@ -403,16 +403,29 @@ class UnifiedElectionProcessor:
             index_cols = ['縣市代碼', '鄉鎮代碼', '選區代碼', '鄉鎮市區代碼', '村里投開票所代碼']
 
         # 取得候選人資訊（包含選區代碼或縣市代碼以便後續過濾）
+        # Also include party code for conversion
         if '選區代碼' in df_cand.columns and aggregate_level == 'polling':
-            df_cand_info = df_cand[['選區代碼', '號次', '姓名']].drop_duplicates()
+            df_cand_info = df_cand[['選區代碼', '號次', '姓名', '政黨代碼']].drop_duplicates()
         elif '縣市代碼' in df_cand.columns and aggregate_level == 'village':
             # 村里層級：包含縣市代碼和鄉鎮代碼以區分不同縣市的候選人
             if '鄉鎮代碼' in df_cand.columns:
-                df_cand_info = df_cand[['縣市代碼', '鄉鎮代碼', '號次', '姓名']].drop_duplicates()
+                df_cand_info = df_cand[['縣市代碼', '鄉鎮代碼', '號次', '姓名', '政黨代碼']].drop_duplicates()
             else:
-                df_cand_info = df_cand[['縣市代碼', '號次', '姓名']].drop_duplicates()
+                df_cand_info = df_cand[['縣市代碼', '號次', '姓名', '政黨代碼']].drop_duplicates()
         else:
-            df_cand_info = df_cand[['號次', '姓名']].drop_duplicates()
+            df_cand_info = df_cand[['號次', '姓名', '政黨代碼']].drop_duplicates()
+        
+        # Convert party code to party name
+        party_code_map = {
+            '1': '中國國民黨', '2': '民主進步黨', '3': '親民黨', '4': '台灣團結聯盟',
+            '5': '無黨團結聯盟', '6': '綠黨', '7': '新黨', '8': '台灣基進', '9': '台灣民眾黨',
+            '10': '時代力量', '11': '一邊一國行動黨', '12': '勞動黨', '13': '中華統一促進黨',
+            '14': '國會政黨聯盟', '15': '台澎黨', '16': '民主進步黨', '17': '社會民主黨',
+            '18': '和平鴿聯盟黨', '19': '喜樂島聯盟', '20': '安定力量', '21': '合一行動聯盟',
+            '90': '親民黨', '99': '無黨籍及未經政黨推薦', '999': '無黨籍及未經政黨推薦',
+            '348': '喜樂島聯盟',
+        }
+        df_cand_info['政黨'] = df_cand_info['政黨代碼'].astype(str).map(party_code_map).fillna('無黨籍及未經政黨推薦')
 
         # 建立選區候選人映射（用於後續過濾）
         district_candidates = {}
@@ -448,20 +461,26 @@ class UnifiedElectionProcessor:
         if is_president:
             # 組合正副候選人
             temp_dict = {}
+            temp_party_dict = {}  # 儲存政黨資訊
             for idx, row in df_cand_info.iterrows():
                 number = str(row['號次']).strip()
                 name = str(row['姓名']).strip()
+                party = str(row['政黨']).strip() if '政黨' in row.index else ''
                 if number not in temp_dict:
                     temp_dict[number] = []
+                    temp_party_dict[number] = party  # 儲存該號次的政黨
                 temp_dict[number].append(name)
 
-            # 建立候選人字典
+            # 建立候選人字典和政黨字典
             cand_dict = {}
+            party_dict = {}
             for number in temp_dict:
                 if len(temp_dict[number]) >= 2:
                     combined_name = f"{temp_dict[number][0]}/{temp_dict[number][1]}"
                 else:
                     combined_name = temp_dict[number][0]
+                
+                party_value = temp_party_dict.get(number, '')
                 
                 # 對於村里層級的總統選舉，需要為所有可能的縣市建立映射
                 if aggregate_level == 'village':
@@ -483,31 +502,39 @@ class UnifiedElectionProcessor:
                                 for township_str in unique_townships:
                                     key = f"{county_str}-{township_str}_{number}"
                                     cand_dict[key] = combined_name
+                                    party_dict[key] = party_value
                             else:
                                 key = f"{county_str}_{number}"
                                 cand_dict[key] = combined_name
+                                party_dict[key] = party_value
                 
                 # 同時保留簡單的號次映射（用於投開票所層級）
                 cand_dict[number] = combined_name
+                party_dict[number] = party_value
         else:
             # 一般候選人
-            # 根據資料層級決定如何建立候選人字典
+            # 根據資料層級決定如何建立候選人字典和政黨字典
             if '選區代碼' in df_cand_info.columns and aggregate_level == 'polling':
                 # 投開票所層級且有選區：使用選區-號次作為key
                 cand_dict = {}
+                party_dict = {}
                 for _, row in df_cand_info.iterrows():
                     district = str(row['選區代碼']).strip()
                     number = str(row['號次']).strip()
                     name = str(row['姓名']).strip()
+                    party = str(row['政黨']).strip() if '政黨' in row.index else ''
                     key = f"{district}_{number}"
                     cand_dict[key] = name
+                    party_dict[key] = party
             elif '縣市代碼' in df_cand_info.columns:
                 # 有縣市代碼（村里層級，如市長、總統）：使用縣市代碼-號次作為key
                 cand_dict = {}
+                party_dict = {}
                 for _, row in df_cand_info.iterrows():
                     county = str(row['縣市代碼']).strip().strip("'")
                     number = str(row['號次']).strip()
                     name = str(row['姓名']).strip()
+                    party = str(row['政黨']).strip() if '政黨' in row.index else ''
 
                     # 當縣市代碼='10'時，需要使用鄉鎮代碼組合作為key
                     if county == '10' and '鄉鎮代碼' in row.index:
@@ -517,10 +544,17 @@ class UnifiedElectionProcessor:
                         key = f"{county}_{number}"
 
                     cand_dict[key] = name
+                    party_dict[key] = party
             else:
                 # 無選區或縣市代碼時，使用簡單映射（號次->姓名）
-                cand_dict = {str(row['號次']).strip(): str(row['姓名']).strip()
-                            for _, row in df_cand_info.iterrows()}
+                cand_dict = {}
+                party_dict = {}
+                for _, row in df_cand_info.iterrows():
+                    number = str(row['號次']).strip()
+                    name = str(row['姓名']).strip()
+                    party = str(row['政黨']).strip() if '政黨' in row.index else ''
+                    cand_dict[number] = name
+                    party_dict[number] = party
 
         # 判斷是否需要使用複合鍵（選區或縣市+號次）
         use_district_key = '選區代碼' in df_votes.columns and aggregate_level == 'polling'
@@ -598,6 +632,30 @@ class UnifiedElectionProcessor:
         # 只重命名需要重命名的列（總統村里層級保留原始列名）
         if new_cols:
             df_votes_wide.rename(columns=new_cols, inplace=True)
+
+        # 為每個候選人欄位加入對應的黨籍欄位
+        for col in list(df_votes_wide.columns):
+            if col not in index_cols:
+                # 找出原始的pivot_column值（候選人識別或號次）
+                original_key = None
+                if col in new_cols.values():
+                    # 找到對應的原始key
+                    for orig_key, new_name in new_cols.items():
+                        if new_name == col:
+                            original_key = orig_key
+                            break
+                else:
+                    # 沒有被重命名的欄位（總統村里層級）
+                    original_key = col
+                
+                if original_key and original_key in party_dict:
+                    party_value = party_dict[original_key]
+                    # 在候選人得票數欄位後面加入黨籍欄位
+                    party_col_name = f"{col}_黨籍"
+                    # 找到當前欄位的位置
+                    col_idx = df_votes_wide.columns.get_loc(col)
+                    # 在該位置後插入黨籍欄位
+                    df_votes_wide.insert(col_idx + 1, party_col_name, party_value)
 
         # 合併統計資料
         df_result = df_votes_wide.merge(df_stats, on=index_cols, how='left')
