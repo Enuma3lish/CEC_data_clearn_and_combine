@@ -624,7 +624,10 @@ def merge_dfs(dfs):
 
 def process_year_data(year, county, data_dir, output_dir):
     print(f"處理 {year} 年 {county} 資料...")
-    votedata_path = data_dir.parent / "db.cec.gov.tw" / "voteData"
+    # Try multiple possible paths for voteData
+    votedata_path = data_dir.parent / "voteData"
+    if not votedata_path.exists():
+        votedata_path = data_dir.parent / "db.cec.gov.tw" / "voteData"
     pres_info = load_full_candidate_info(votedata_path, year, county, 'President')
     leg_info = load_full_candidate_info(votedata_path, year, county, 'Legislator')
     council_info = load_full_candidate_info(votedata_path, year, county, 'Councilor')
@@ -678,10 +681,16 @@ def process_year_data(year, county, data_dir, output_dir):
 
         dfs_to_merge.append(party_result)
     
-    files = list(county_dir.glob(f'{year}_立法委員*.csv'))
-    if files:
-        print(f"  讀取立委資料: {files[0].name}")
-        dfs_to_merge.append(format_generic_data(pd.read_csv(files[0], encoding='utf-8-sig'), county, leg_info, '立委', 'Legislator'))
+    # Prioritize exact match (without 選區 suffix) for legislator files
+    leg_exact = county_dir / f'{year}_立法委員.csv'
+    if leg_exact.exists():
+        print(f"  讀取立委資料: {leg_exact.name}")
+        dfs_to_merge.append(format_generic_data(pd.read_csv(leg_exact, encoding='utf-8-sig'), county, leg_info, '立委', 'Legislator'))
+    else:
+        files = list(county_dir.glob(f'{year}_立法委員*.csv'))
+        if files:
+            print(f"  讀取立委資料: {files[0].name}")
+            dfs_to_merge.append(format_generic_data(pd.read_csv(files[0], encoding='utf-8-sig'), county, leg_info, '立委', 'Legislator'))
     mayor_files = list(county_dir.glob(f'{year}_*市長.csv')) 
     if mayor_files:
         print(f"  讀取市長資料: {mayor_files[0].name}")
