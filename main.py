@@ -291,11 +291,18 @@ class ElectionProcessor:
         for _, row in df_tks_f.iterrows():
             dept = self._clean_str(row[3])
             li = self._clean_str(row[4])
+            tbox_str = self._clean_str(row[5])  # voting booth number (as string)
+            tbox = int(float(tbox_str)) if tbox_str != '' else 0
             area = self._clean_str(row[2]).zfill(2)
             cand_no = self._clean_str(row[6])
             votes = int(float(row[7])) if row[7] != '' else 0
 
             if li == '0000':
+                continue
+
+            # Only use summary rows (tbox=0) which contain pre-aggregated totals
+            # This avoids double-counting from individual voting booth rows
+            if tbox != 0:
                 continue
 
             key = f"{dept}_{li}"
