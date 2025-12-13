@@ -19,16 +19,32 @@
 
 ```bash
 # 安裝依賴
-pip install pandas numpy
+pip install pandas
 
-# 執行處理
+# 處理預設縣市（花蓮縣、臺北市）
 python main.py
+
+# 處理指定縣市
+python main.py --counties 花蓮縣 臺北市
+
+# 處理指定年份
+python main.py --years 2020 2024
+
+# 不合併縣市資料
+python main.py --no-combine
 ```
 
-## 資料夾結構
+## 專案結構
 
 ```
 CEC_data_clearn_and_combine/
+├── main.py                      # 主程式入口
+├── election_processor/          # 選舉資料處理模組
+│   ├── __init__.py             # 模組初始化
+│   ├── config.py               # 配置設定
+│   ├── processor.py            # ElectionProcessor 類別
+│   ├── merge.py                # 合併功能
+│   └── utils.py                # 工具函數
 ├── voteData/                    # 原始 CEC 選舉資料
 │   ├── 2014-103年地方公職人員選舉/
 │   ├── 2016總統立委/
@@ -36,16 +52,46 @@ CEC_data_clearn_and_combine/
 │   ├── 2020總統立委/
 │   ├── 2022-111年地方公職人員選舉/
 │   └── 2024總統立委/
-├── 鄰里整理輸出/                # 處理後輸出
+├── output/                      # 處理後輸出
 │   ├── 花蓮縣/
 │   │   ├── 2014_選舉資料_花蓮縣.csv
 │   │   ├── 2016_選舉資料_花蓮縣.csv
 │   │   └── ...
-│   └── 臺北市/
-│       └── ...
-├── main.py                      # 主程式
-├── 鄰里整理範例 - 2014.csv      # 輸出格式範例（地方選舉）
-└── 鄰里整理範例 - 2020.csv      # 輸出格式範例（總統選舉）
+│   ├── 臺北市/
+│   │   └── ...
+│   └── 花蓮縣_臺北市_合併.csv
+└── examples/                    # 輸出格式範例
+    ├── 鄰里整理範例 - 2014.csv
+    └── 鄰里整理範例 - 2020.csv
+```
+
+## 模組說明
+
+### `election_processor`
+
+主要處理模組，包含：
+
+- **config.py**: 縣市配置、政黨代碼映射、年份設定
+- **processor.py**: `ElectionProcessor` 類別，處理單一縣市年份資料
+- **merge.py**: 合併選舉結果功能
+- **utils.py**: 工具函數（CSV 讀取、名稱正規化等）
+
+### 使用方式
+
+```python
+from election_processor import (
+    ElectionProcessor,
+    process_local_election,
+    process_presidential_election,
+    COUNTY_CONFIG,
+)
+
+# 處理單一年份
+processor = ElectionProcessor('花蓮縣', 2020)
+result = processor.process_election('總統', '總統候選人', is_president=True)
+
+# 處理完整選舉
+df = process_presidential_election('花蓮縣', 2020)
 ```
 
 ## 輸出格式
@@ -57,12 +103,11 @@ CEC_data_clearn_and_combine/
 | 縣市 | 縣市名稱 |
 | 行政區別 | 鄉鎮市區名稱 |
 | 鄰里 | 村里名稱 |
-| 區域別代碼 | 選區代碼 |
+| 區域別代碼 | 11位數選區代碼 |
 | 縣市長候選人N＿候選人名稱 | 候選人姓名 |
 | 縣市長候選人N＿黨籍 | 政黨 |
 | 縣市長候選人N_得票數 | 得票數 |
 | 縣市長有效票數A | 有效票數 |
-| ... | 其他選舉類型欄位 |
 
 ### 總統立委選舉（2016/2020/2024）
 
@@ -71,53 +116,28 @@ CEC_data_clearn_and_combine/
 | 縣市 | 縣市名稱 |
 | 行政區別 | 鄉鎮市區名稱 |
 | 鄰里 | 村里名稱 |
-| 區域別代碼 | 選區代碼 |
+| 區域別代碼 | 11位數選區代碼 |
 | 總統候選人N | 候選人姓名（正/副總統） |
 | 總統候選人N_得票數 | 得票數 |
-| 區域立委候選人N＿黨籍 | 政黨 |
-| 區域立委候選人N_得票數 | 得票數 |
 | 不分區政黨(N)\n\n政黨名 | 政黨得票數 |
-| ... | 其他統計欄位 |
 
 ## 支援縣市
 
-目前已設定：
-- 花蓮縣 (prv_code=10, city_code=15)
-- 臺北市 (prv_code=63, city_code=0, 直轄市)
+已設定的縣市（可在 `election_processor/config.py` 新增）：
 
-可在 `main.py` 中的 `COUNTY_CONFIG` 新增其他縣市。
-
-## 輸出驗證
-
-程式會自動驗證輸出：
-- 無重複鄰里（行政區別 + 鄰里 組合唯一）
-- 資料完整性檢查
-
-## 使用範例
-
-```python
-import pandas as pd
-
-# 讀取處理後的資料
-df_2020 = pd.read_csv('鄰里整理輸出/花蓮縣/2020_選舉資料_花蓮縣.csv')
-
-# 查看總統候選人得票
-print(df_2020[['行政區別', '鄰里', '總統候選人1', '總統候選人1_得票數']].head())
-
-# 統計各候選人總得票
-for i in range(1, 4):
-    col = f'總統候選人{i}_得票數'
-    if col in df_2020.columns:
-        total = df_2020[col].sum()
-        name = df_2020[f'總統候選人{i}'].iloc[0]
-        print(f'{name}: {total:,} 票')
-```
+| 縣市 | prv_code | city_code | 類型 |
+|------|----------|-----------|------|
+| 花蓮縣 | 10 | 15 | 縣 |
+| 臺北市 | 63 | 0 | 直轄市 |
+| 新北市 | 65 | 0 | 直轄市 |
+| ... | ... | ... | ... |
 
 ## 技術特點
 
+- 模組化設計，易於擴充
 - 自動處理多種 CSV 編碼（UTF-8, Big5, CP950）
-- 自動正規化行政區名稱（移除縣市前綴和選區標記）
-- 智慧資料合併（outer join + 重複處理）
+- 自動正規化行政區名稱
+- 只使用彙總列（tbox=0）確保資料正確性
 - 2022 年特殊資料夾結構支援（T1/C1/R1 代碼）
 
 ## 授權
