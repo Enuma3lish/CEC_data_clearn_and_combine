@@ -493,6 +493,10 @@ def merge_election_results(results, county):
     if not valid_results:
         return None
 
+    config = COUNTY_CONFIG[county]
+    prv_code = config['prv_code']
+    city_code = config['city_code']
+
     # Merge on 行政區別 + 鄰里
     merged = valid_results[0]
     for df in valid_results[1:]:
@@ -515,9 +519,15 @@ def merge_election_results(results, county):
     # Add county column
     merged.insert(0, '縣市', county)
 
-    # Add 區域別代碼
+    # Add 區域別代碼 - format: {prv:02d}{city:03d}{dept:02d}{li:04d} = 11 digits
+    # Raw dept values are 10, 20, 30... so divide by 10 to get 01, 02, 03...
     if '_dept' in merged.columns and '_li' in merged.columns:
-        merged['區域別代碼'] = merged['_dept'] + merged['_li']
+        def build_region_code(row):
+            dept_raw = int(row['_dept']) if pd.notna(row['_dept']) else 0
+            dept = str(dept_raw // 10).zfill(2)  # 10→01, 20→02, etc.
+            li = str(row['_li']).zfill(4)
+            return f"{prv_code:02d}{city_code:03d}{dept}{li}"
+        merged['區域別代碼'] = merged.apply(build_region_code, axis=1)
         merged = merged.drop(columns=['_dept', '_li'], errors='ignore')
     else:
         merged['區域別代碼'] = ''
