@@ -1,6 +1,0 @@
-Executable: C:\Users\melo\OneDrive\Desktop\CEC_data_clearn_and_combine\.venv\Scripts\python.exe
-Cwd: C:\Users\melo\OneDrive\Desktop\CEC_data_clearn_and_combine\utils
-ImportError: Unable to import required dependencies:
-numpy: Error importing numpy: you should not try to import numpy from
-        its source directory; please exit the numpy source tree, and relaunch
-        your python interpreter from there.
