@@ -500,7 +500,13 @@ def _build_maps(df_base, df_cand, folder_name):
 
     # 行政區映射
     dist_map = df_base[df_base['li_code'] == '0000'].set_index('dept_code')['name'].to_dict()
+    # 移除選舉區標記
     dist_map = {k: re.sub(r'第\d+選舉區', '', v) for k, v in dist_map.items()}
+    # 移除縣市前綴 (如 "臺北市松山區" -> "松山區")
+    dist_map = {k: re.sub(r'^(臺北市|新北市|桃園市|臺中市|臺南市|高雄市|基隆市|新竹市|嘉義市|'
+                          r'宜蘭縣|新竹縣|苗栗縣|彰化縣|南投縣|雲林縣|嘉義縣|屏東縣|'
+                          r'臺東縣|花蓮縣|澎湖縣|金門縣|連江縣)', '', v)
+                for k, v in dist_map.items()}
 
     # 村里映射
     df_base['key'] = df_base['dept_code'] + "_" + df_base['li_code']
@@ -984,8 +990,8 @@ def main():
     print("選舉資料處理系統 (2014-2024)")
     print("=" * 60)
 
-    # 目前只處理花蓮縣
-    counties_to_process = ['花蓮縣']
+    # 處理花蓮縣和臺北市
+    counties_to_process = ['花蓮縣', '臺北市']
     years_to_process = [2014, 2016, 2018, 2020, 2022, 2024]
 
     # 第一階段：修復/產生原始資料
