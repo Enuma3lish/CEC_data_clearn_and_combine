@@ -816,7 +816,12 @@ def repair_party_list_data(county, year, target_filename, prv_code, city_code):
         print(f"  [WARN] Party-list folder not found: {year_folder}")
         return
 
-    elctks_path = year_folder / "elctks.csv"
+    # 嘗試不同的檔案名稱格式 (2016 使用 _T4 後綴)
+    elctks_path = _find_file(year_folder, ['elctks.csv', 'elctks_T4.csv'])
+    if not elctks_path:
+        print(f"  [WARN] Party-list elctks not found in {year_folder}")
+        return
+
     target_path = RAW_DIR / county / target_filename
 
     legislator_file = RAW_DIR / county / f"{year}_立法委員.csv"
@@ -836,10 +841,10 @@ def repair_party_list_data(county, year, target_filename, prv_code, city_code):
         df_filtered = df_ctks[(df_ctks.iloc[:, 0] == prv_str) & (df_ctks.iloc[:, 1] == city_str)].copy()
         df_filtered = df_filtered[df_filtered.iloc[:, 4] != '0000'].copy()
 
-        # 讀取政黨名稱
-        elcand_path = year_folder / "elcand.csv"
+        # 讀取政黨名稱 (嘗試不同的檔案名稱格式)
+        elcand_path = _find_file(year_folder, ['elcand.csv', 'elcand_T4.csv'])
         party_map = {}
-        if elcand_path.exists():
+        if elcand_path and elcand_path.exists():
             df_cand = pd.read_csv(elcand_path, encoding='utf-8', dtype=str, header=None, keep_default_na=False)
             for _, row in df_cand.iterrows():
                 party_no = row.iloc[5].strip()
@@ -848,10 +853,10 @@ def repair_party_list_data(county, year, target_filename, prv_code, city_code):
                     party_map[party_no] = party_name
             print(f"     Found {len(party_map)} parties")
 
-        # 讀取村里名稱
-        elbase_path = year_folder / "elbase.csv"
+        # 讀取村里名稱 (嘗試不同的檔案名稱格式)
+        elbase_path = _find_file(year_folder, ['elbase.csv', 'elbase_T4.csv'])
         village_map = {}
-        if elbase_path.exists():
+        if elbase_path and elbase_path.exists():
             df_base = pd.read_csv(elbase_path, encoding='utf-8', dtype=str, keep_default_na=False)
             df_base_f = df_base[(df_base.iloc[:, 0] == prv_str) & (df_base.iloc[:, 1] == city_str)].copy()
             for _, row in df_base_f.iterrows():

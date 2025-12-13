@@ -2,7 +2,7 @@ import pandas as pd
 from pathlib import Path
 import sys
 
-OUTPUT_DIR = Path(r'c:\Users\melo\OneDrive\Desktop\CEC_data_clearn_and_combine\鄰里整理輸出')
+OUTPUT_DIR = Path(__file__).parent / "鄰里整理輸出"
 
 def verify():
     all_pass = True
