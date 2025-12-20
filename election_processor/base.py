@@ -4,6 +4,14 @@
 Base processing functions for election data processor
 
 提供可重用的資料處理函數，減少程式碼重複。
+所有選舉類型都使用這些基礎函數進行處理。
+
+使用方式：
+    from election_processor import process_election, get_election_config
+
+    # 使用統一入口處理任何選舉類型
+    election_type = get_election_config('president')
+    result = process_election(election_type, data_dir, prv_code, city_code, city_name)
 """
 
 import os
@@ -538,3 +546,48 @@ def process_multi_area_election(data_dir, prv_code, city_code, city_name,
             }
 
     return results if results else None
+
+
+def process_election(election_type, data_dir, prv_code, city_code, city_name):
+    """統一選舉資料處理入口
+
+    根據 ElectionType 配置自動選擇處理方式，無需為每種選舉類型撰寫獨立函數。
+
+    Args:
+        election_type: ElectionType 配置物件
+        data_dir: 資料目錄路徑
+        prv_code: 省市代碼
+        city_code: 縣市代碼（直轄市為 '000' 或 None）
+        city_name: 縣市名稱
+
+    Returns:
+        dict: 處理結果
+            - 單選區選舉：{'data': DataFrame, 'candidates': list, ...}
+            - 多選區選舉：{'area1': {...}, 'area2': {...}, ...}
+
+    Example:
+        >>> from election_processor import process_election, get_election_config
+        >>> election_type = get_election_config('president')
+        >>> result = process_election(election_type, data_dir, '63', '000', '臺北市')
+    """
+    if election_type.is_multi_area:
+        # 多選區選舉（議員、區域立委、鄉鎮市長）
+        return process_multi_area_election(
+            data_dir=data_dir,
+            prv_code=prv_code,
+            city_code=city_code,
+            city_name=city_name,
+            use_village_summary=election_type.use_village_summary,
+            use_polling_station=election_type.use_polling_station,
+        )
+    else:
+        # 單選區選舉（總統、市長、原住民立委、政黨票）
+        return process_single_area_election(
+            data_dir=data_dir,
+            prv_code=prv_code,
+            city_code=city_code,
+            city_name=city_name,
+            use_village_summary=election_type.use_village_summary,
+            is_national=election_type.is_national_candidate,
+            has_combined_name=election_type.has_combined_name,
+        )

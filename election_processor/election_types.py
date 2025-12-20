@@ -14,22 +14,44 @@ MAX_CANDIDATES = 50
 
 
 class ElectionType:
-    """選舉類型基礎類別"""
+    """選舉類型基礎類別
+
+    所有選舉類型的配置都在此定義，處理函數會根據這些配置自動調整行為。
+    新增選舉類型只需在此定義配置，無需修改處理邏輯。
+
+    Attributes:
+        key: 選舉類型識別碼（如 'council', 'president'）
+        name: 選舉名稱（如 '縣市議員選舉'）
+        year: 選舉年份
+        data_folder: 資料夾名稱
+        output_template: 輸出檔名模板，支援 {year}, {city_name} 變數
+        is_multi_area: 是否多選區（議員、立委等）
+        use_polling_station: 是否輸出投開票所層級資料
+        use_village_summary: 是否使用村里彙總列（tbox=0）
+        is_national_candidate: 是否全國層級候選人（總統、原住民立委等）
+        has_combined_name: 是否合併候選人名稱（總統副總統組合）
+        is_party_vote: 是否為政黨票（候選人就是政黨）
+        election_category: 選舉類別（用於合併檔案分類）
+        merge_key: 合併檔案時使用的 key
+    """
 
     def __init__(
         self,
-        key,                      # 選舉類型 key（如 'council', 'president'）
-        name,                     # 選舉名稱（如 '縣市議員選舉'）
-        year,                     # 年份
-        data_folder,              # 資料夾名稱
-        output_template,          # 輸出檔名模板
-        is_multi_area=False,      # 是否多選區（如議員、立委）
-        use_polling_station=False, # 是否輸出投開票所層級
-        use_village_summary=True,  # 是否使用村里彙總列
-        is_national_candidate=False, # 是否全國候選人（如總統）
-        candidate_name_col=6,     # 候選人姓名欄位索引
-        candidate_party_col=7,    # 候選人政黨欄位索引
-        has_combined_name=False,  # 是否合併名稱（如總統副總統）
+        key,                        # 選舉類型 key
+        name,                       # 選舉名稱
+        year,                       # 年份
+        data_folder,                # 資料夾名稱
+        output_template,            # 輸出檔名模板
+        is_multi_area=False,        # 是否多選區
+        use_polling_station=False,  # 是否輸出投開票所層級
+        use_village_summary=True,   # 是否使用村里彙總列
+        is_national_candidate=False, # 是否全國候選人
+        candidate_name_col=6,       # 候選人姓名欄位索引
+        candidate_party_col=7,      # 候選人政黨欄位索引
+        has_combined_name=False,    # 是否合併名稱
+        is_party_vote=False,        # 是否為政黨票
+        election_category=None,     # 選舉類別
+        merge_key=None,             # 合併檔案 key
     ):
         self.key = key
         self.name = name
@@ -43,6 +65,16 @@ class ElectionType:
         self.candidate_name_col = candidate_name_col
         self.candidate_party_col = candidate_party_col
         self.has_combined_name = has_combined_name
+        self.is_party_vote = is_party_vote
+        self.election_category = election_category or key
+        self.merge_key = merge_key or key
+
+    def get_output_filename(self, city_name):
+        """取得輸出檔名"""
+        return self.output_template.format(year=self.year, city_name=city_name)
+
+    def __repr__(self):
+        return f"ElectionType({self.key}, {self.year}, multi_area={self.is_multi_area})"
 
 
 # 2014 選舉類型配置
@@ -57,6 +89,8 @@ ELECTION_TYPES_2014 = {
         is_multi_area=True,
         use_polling_station=True,
         use_village_summary=False,
+        election_category='council',
+        merge_key='council',
     ),
     # 縣市區域議員
     'council_county': ElectionType(
@@ -68,6 +102,8 @@ ELECTION_TYPES_2014 = {
         is_multi_area=True,
         use_polling_station=True,
         use_village_summary=False,
+        election_category='council',
+        merge_key='council',
     ),
     # 直轄市市長
     'mayor_municipality': ElectionType(
@@ -78,6 +114,8 @@ ELECTION_TYPES_2014 = {
         output_template='{year}_直轄市市長_各村里得票數_{city_name}.xlsx',
         is_multi_area=False,
         use_village_summary=True,
+        election_category='mayor',
+        merge_key='mayor',
     ),
     # 縣市市長
     'mayor_county': ElectionType(
@@ -88,6 +126,8 @@ ELECTION_TYPES_2014 = {
         output_template='{year}_縣市市長_各村里得票數_{city_name}.xlsx',
         is_multi_area=False,
         use_village_summary=True,
+        election_category='mayor',
+        merge_key='mayor',
     ),
     # 鄉鎮市長
     'township_mayor': ElectionType(
@@ -98,6 +138,8 @@ ELECTION_TYPES_2014 = {
         output_template='{year}_鄉鎮市長_各村里得票數_{city_name}.xlsx',
         is_multi_area=True,
         use_village_summary=True,
+        election_category='township_mayor',
+        merge_key='township_mayor',
     ),
 }
 
@@ -114,6 +156,8 @@ ELECTION_TYPES_2020 = {
         use_village_summary=True,
         is_national_candidate=True,
         has_combined_name=True,
+        election_category='president',
+        merge_key='president',
     ),
     # 區域立委
     'legislator': ElectionType(
@@ -124,6 +168,8 @@ ELECTION_TYPES_2020 = {
         output_template='{year}_區域立委_各村里得票數_{city_name}.xlsx',
         is_multi_area=True,
         use_village_summary=True,
+        election_category='legislator',
+        merge_key='legislator',
     ),
     # 山地原住民立委
     'mountain_legislator': ElectionType(
@@ -135,6 +181,8 @@ ELECTION_TYPES_2020 = {
         is_multi_area=False,
         use_village_summary=True,
         is_national_candidate=True,
+        election_category='mountain_legislator',
+        merge_key='mountain_legislator',
     ),
     # 平地原住民立委
     'plain_legislator': ElectionType(
@@ -146,6 +194,8 @@ ELECTION_TYPES_2020 = {
         is_multi_area=False,
         use_village_summary=True,
         is_national_candidate=True,
+        election_category='plain_legislator',
+        merge_key='plain_legislator',
     ),
     # 政黨票
     'party_vote': ElectionType(
@@ -157,6 +207,9 @@ ELECTION_TYPES_2020 = {
         is_multi_area=False,
         use_village_summary=True,
         is_national_candidate=True,
+        is_party_vote=True,
+        election_category='party_vote',
+        merge_key='party_vote',
     ),
 }
 
@@ -199,8 +252,8 @@ def get_election_config(key):
 # 合併檔案配置
 MERGE_CONFIGS = {
     2014: [
-        ('council', '縣市議員選舉'),
         ('mayor', '縣市長選舉'),
+        ('council', '縣市議員選舉'),
         ('township_mayor', '鄉鎮市長選舉'),
     ],
     2020: [

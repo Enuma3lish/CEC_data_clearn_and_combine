@@ -18,7 +18,11 @@
       "WebFetch(domain:votetw.com)",
       "Bash(chcp 65001)",
       "Bash(dir /b \"C:\\Users\\MeloWu\\Desktop\\CEC_data_clearn_and_combine\\voteData\\2014-103年地方公職人員選舉\")",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:election.ltn.com.tw)",
+      "Bash(cat:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
