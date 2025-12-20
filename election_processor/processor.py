@@ -1,459 +1,1593 @@
+# -*- coding: utf-8 -*-
 """
-選舉資料處理器
-Election data processor class
+選舉資料處理系統 - 資料處理函數
+Data processing functions for election data processor
 """
 
+import os
 import pandas as pd
 from collections import defaultdict
-from pathlib import Path
 
-from .config import COUNTY_CONFIG, PARTY_CODE_MAP, YEAR_FOLDER_MAP, VOTE_DATA_DIR
-from .utils import find_file, load_csv_safe, normalize_district, clean_string
+from .utils import read_csv_clean, clean_number, load_party_map, get_party_name
 
 
-class ElectionProcessor:
-    """選舉資料處理器
+def process_council_municipality(data_dir, prv_code, city_name):
+    """處理直轄市區域議員選舉資料
 
-    處理單一縣市、單一年份的選舉資料
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省市代碼
+        city_name: 縣市名稱
 
-    Attributes:
-        county: 縣市名稱
-        year: 選舉年份
-        config: 縣市配置
+    Returns:
+        dict: 各選區的 DataFrame 和候選人資訊
     """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 資料夾不存在: {data_dir}")
+        return None
 
-    def __init__(self, county: str, year: int):
-        """初始化處理器
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
 
-        Args:
-            county: 縣市名稱（如 '花蓮縣', '臺北市'）
-            year: 選舉年份（2014-2024）
-        """
-        self.county = county
-        self.year = year
-        self.config = COUNTY_CONFIG[county]
-        self.prv_code = self.config['prv_code']
-        self.city_code = self.config['city_code']
-        self.is_municipality = self.config['is_municipality']
-        self.year_folder = VOTE_DATA_DIR / YEAR_FOLDER_MAP.get(year, '')
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
 
-    def _read_raw_data(self, folder_path: Path):
-        """讀取原始資料
+    # 過濾指定縣市
+    df_base = df_base[df_base[0] == prv_code]
+    df_cand = df_cand[df_cand[0] == prv_code]
+    df_tks = df_tks[df_tks[0] == prv_code]
+    df_prof = df_prof[df_prof[0] == prv_code]
 
-        Args:
-            folder_path: 選舉類型資料夾路徑
+    if df_base.empty:
+        print(f"  [SKIP] 無 {city_name} 資料")
+        return None
 
-        Returns:
-            (df_tks, df_base, df_cand, df_prof) 四個 DataFrame
-        """
-        # 讀取票數
-        elctks_file = find_file(folder_path, ['elctks.csv', 'elctks_T1.csv', 'elctks_P1.csv', 'elctks_T4.csv'])
-        if not elctks_file:
-            return None, None, None, None
-
-        df_tks = pd.read_csv(elctks_file, header=None, dtype=str, quotechar='"')
-        for col in df_tks.columns:
-            df_tks[col] = df_tks[col].apply(clean_string)
-
-        # 讀取基本資料
-        elbase_file = find_file(folder_path, ['elbase.csv', 'elbase_T1.csv', 'elbase_P1.csv', 'elbase_T4.csv'])
-        df_base = None
-        if elbase_file:
-            df_base = load_csv_safe(elbase_file, header=None, dtype=str, quotechar='"')
-            if df_base is not None:
-                for col in df_base.columns:
-                    df_base[col] = df_base[col].apply(clean_string)
-
-        # 讀取候選人
-        elcand_file = find_file(folder_path, ['elcand.csv', 'elcand_T1.csv', 'elcand_P1.csv', 'elcand_T4.csv'])
-        df_cand = None
-        if elcand_file:
-            df_cand = load_csv_safe(elcand_file, header=None, dtype=str, quotechar='"')
-            if df_cand is not None:
-                for col in df_cand.columns:
-                    df_cand[col] = df_cand[col].apply(clean_string)
-
-        # 讀取統計
-        elprof_file = folder_path / "elprof.csv"
-        df_prof = None
-        if elprof_file.exists():
-            df_prof = pd.read_csv(elprof_file, header=None, dtype=str, quotechar='"')
-
-        return df_tks, df_base, df_cand, df_prof
-
-    def _filter_county(self, df: pd.DataFrame) -> pd.DataFrame:
-        """過濾縣市資料
-
-        Args:
-            df: 原始 DataFrame
-
-        Returns:
-            過濾後的 DataFrame
-        """
-        if df is None or df.empty:
-            return pd.DataFrame()
-
-        df = df.copy()
-        df[0] = pd.to_numeric(df[0], errors='coerce')
-        df[1] = pd.to_numeric(df[1], errors='coerce')
-
-        if self.city_code == 0:
-            return df[df[0] == self.prv_code]
+    # 建立區域名稱對照
+    dist_map = {}
+    village_map = {}
+    for _, row in df_base.iterrows():
+        dept, li, name = row[3], row[4], row[5]
+        if li == '0000':
+            dist_map[dept] = name
         else:
-            return df[(df[0] == self.prv_code) & (df[1] == self.city_code)]
+            village_map[f"{dept}_{li}"] = name
 
-    def _build_maps(self, df_base, df_cand, is_president=False, key_by_dept=False):
-        """建立映射表
+    # 建立候選人對照
+    cand_by_area = defaultdict(list)
+    for _, row in df_cand.iterrows():
+        cand_by_area[row[2]].append({
+            'no': row[5],
+            'name': row[6],
+            'party': get_party_name(row[7])
+        })
 
-        Args:
-            df_base: 基本資料 DataFrame
-            df_cand: 候選人資料 DataFrame
-            is_president: 是否為總統選舉
-            key_by_dept: 是否以鄉鎮為 key（用於鄉鎮市長/鄉鎮市民代表）
+    for area in cand_by_area:
+        cand_by_area[area] = sorted(
+            cand_by_area[area],
+            key=lambda x: int(x['no']) if x['no'].isdigit() else 0
+        )
 
-        Returns:
-            (dist_map, village_map, cand_by_key) 三個映射
-        """
-        # 行政區映射 (dept_code -> name)
-        dist_map = {}
-        village_map = {}
+    # 建立統計資料對照
+    stats_map = {}
+    for _, row in df_prof.iterrows():
+        key = f"{row[3]}_{row[4]}_{row[5]}"
+        valid_votes = clean_number(row[6])
+        invalid_votes = clean_number(row[7])
+        total_votes = clean_number(row[8])
+        eligible_voters = clean_number(row[9]) if len(row) > 9 else 0
+        turnout = float(row[18]) if len(row) > 18 and row[18] else 0
 
-        if df_base is not None and not df_base.empty:
-            df_base_f = self._filter_county(df_base)
-            for _, row in df_base_f.iterrows():
-                dept = clean_string(row[3])
-                li = clean_string(row[4])
-                name = normalize_district(clean_string(row[5]))
-                if li == '0000':
-                    dist_map[dept] = name
-                else:
-                    village_map[f"{dept}_{li}"] = name
+        # 計算其他欄位
+        issued_ballots = total_votes  # E = C (假設 D = 0)
+        unused_ballots = eligible_voters - issued_ballots  # F = G - E
 
-        # 候選人映射 (key -> list of {cand_no, name, party})
-        cand_by_key = defaultdict(list)
+        stats_map[key] = {
+            '有效票數': valid_votes,
+            '無效票數': invalid_votes,
+            '投票數': total_votes,
+            '已領未投票數': 0,  # D
+            '發出票數': issued_ballots,  # E
+            '用餘票數': unused_ballots,  # F
+            '選舉人數': eligible_voters,
+            '投票率': turnout if turnout else (total_votes / eligible_voters * 100 if eligible_voters > 0 else 0)
+        }
 
-        if df_cand is not None and not df_cand.empty:
-            if is_president:
-                # 總統候選人在全國層級
-                df_cand_f = df_cand[(df_cand[0].astype(str) == '0') | (df_cand[0].astype(str) == '00')]
-            else:
-                df_cand_f = self._filter_county(df_cand)
+    # 處理票數資料
+    vote_data = defaultdict(lambda: defaultdict(dict))
+    for _, row in df_tks.iterrows():
+        key = f"{row[3]}_{row[4]}_{row[5]}"
+        vote_data[row[2]][key][row[6]] = clean_number(row[7])
 
-            # Group by cand_no for president (combine president + VP)
-            if is_president:
-                by_cand_no = defaultdict(list)
-                for _, row in df_cand_f.iterrows():
-                    cand_no = clean_string(row[5])
-                    name = clean_string(row[6])
-                    party_code = clean_string(row[7])
-                    party = PARTY_CODE_MAP.get(party_code, '無黨籍')
-                    by_cand_no[cand_no].append({'name': name, 'party': party})
+    # 生成各選區結果
+    results = {}
+    for area in sorted(cand_by_area.keys()):
+        if area == '00':
+            continue
 
-                for cand_no, items in by_cand_no.items():
-                    if len(items) == 2:
-                        combined_name = f"{items[0]['name']}/{items[1]['name']}"
-                    else:
-                        combined_name = items[0]['name'] if items else ''
-                    party = items[0]['party'] if items else ''
-                    cand_by_key['00'].append({
-                        'cand_no': cand_no,
-                        'name': combined_name,
-                        'party': party
-                    })
-            else:
-                for _, row in df_cand_f.iterrows():
-                    if key_by_dept:
-                        key = clean_string(row[3])  # dept_code = township
-                    else:
-                        key = clean_string(row[2]).zfill(2)  # area_code = election district
-                    cand_no = clean_string(row[5])
-                    name = clean_string(row[6])
-                    party_code = clean_string(row[7])
-                    party = PARTY_CODE_MAP.get(party_code, '無黨籍')
-                    cand_by_key[key].append({
-                        'cand_no': cand_no,
-                        'name': name,
-                        'party': party
-                    })
-
-        # Sort candidates by cand_no
-        for key in cand_by_key:
-            cand_by_key[key] = sorted(cand_by_key[key], key=lambda x: x['cand_no'])
-
-        return dist_map, village_map, cand_by_key
-
-    def _get_stats(self, df_prof, dept_code: str, li_code: str) -> dict:
-        """取得統計資料
-
-        Args:
-            df_prof: 統計資料 DataFrame
-            dept_code: 鄉鎮代碼
-            li_code: 村里代碼
-
-        Returns:
-            統計資料字典
-        """
-        if df_prof is None or df_prof.empty:
-            return {}
-
-        df_prof_f = self._filter_county(df_prof)
-        if df_prof_f.empty:
-            return {}
-
-        for _, row in df_prof_f.iterrows():
-            if clean_string(row[3]) == dept_code and clean_string(row[4]) == li_code:
-                return {
-                    '有效票數A': int(float(row[5])) if pd.notna(row[5]) and row[5] != '' else 0,
-                    '無效票數B': int(float(row[6])) if pd.notna(row[6]) and row[6] != '' else 0,
-                    '投票數C': int(float(row[7])) if pd.notna(row[7]) and row[7] != '' else 0,
-                    '選舉人數G': int(float(row[11])) if len(row) > 11 and pd.notna(row[11]) and row[11] != '' else 0,
-                }
-        return {}
-
-    def process_election(self, folder_name: str, prefix: str, is_president=False,
-                         key_by_dept=False, max_candidates=10) -> pd.DataFrame:
-        """處理單一選舉類型
-
-        Args:
-            folder_name: 選舉類型資料夾名稱
-            prefix: 欄位前綴
-            is_president: 是否為總統選舉
-            key_by_dept: 是否以鄉鎮為 key
-            max_candidates: 最大候選人數
-
-        Returns:
-            處理結果 DataFrame
-        """
-        folder_path = self.year_folder / folder_name
-        if not folder_path.exists():
-            print(f"    [SKIP] {folder_name}")
-            return None
-
-        df_tks, df_base, df_cand, df_prof = self._read_raw_data(folder_path)
-        if df_tks is None:
-            print(f"    [ERROR] {folder_name} - no data")
-            return None
-
-        # Filter and build maps
-        df_tks_f = self._filter_county(df_tks)
-        if df_tks_f.empty:
-            print(f"    [WARN] {folder_name} - empty after filter")
-            return None
-
-        dist_map, village_map, cand_by_key = self._build_maps(df_base, df_cand, is_president, key_by_dept)
-
-        # Find max candidates
-        if cand_by_key:
-            actual_max = max(len(v) for v in cand_by_key.values())
-            max_candidates = max(max_candidates, actual_max)
-
-        # Build result data
-        votes_by_village = defaultdict(lambda: defaultdict(int))
-        area_by_village = {}
-        dept_by_village = {}
-
-        for _, row in df_tks_f.iterrows():
-            dept = clean_string(row[3])
-            li = clean_string(row[4])
-            tbox_str = clean_string(row[5])
-            tbox = int(float(tbox_str)) if tbox_str != '' else 0
-            area = clean_string(row[2]).zfill(2)
-            cand_no = clean_string(row[6])
-            votes = int(float(row[7])) if row[7] != '' else 0
-
-            if li == '0000':
-                continue
-
-            # Only use summary rows (tbox=0)
-            if tbox != 0:
-                continue
-
-            key = f"{dept}_{li}"
-            votes_by_village[key][cand_no] = votes
-            area_by_village[key] = area
-            dept_by_village[key] = dept
-
-        if not votes_by_village:
-            return None
-
-        # Build rows
+        candidates = cand_by_area[area]
+        area_votes = vote_data[area]
         rows = []
-        for key, vote_dict in votes_by_village.items():
-            dept, li = key.split('_')
-            area = area_by_village.get(key, '00')
-            dist_name = dist_map.get(dept, '')
-            village_name = village_map.get(key, '')
+        current_dept = None
 
-            if not dist_name or not village_name:
+        sorted_keys = sorted(
+            area_votes.keys(),
+            key=lambda x: (x.split('_')[0], x.split('_')[1], int(x.split('_')[2]) if x.split('_')[2].isdigit() else 0)
+        )
+
+        for key in sorted_keys:
+            parts = key.split('_')
+            dept, li, tbox = parts[0], parts[1], parts[2]
+
+            if li == '0000' or tbox == '0' or tbox == '0000':
                 continue
 
             row_data = {
-                '行政區別': dist_name,
-                '鄰里': village_name,
-                '_dept': dept,
-                '_li': li,
-                '_area': area,
+                '行政區別': dist_map.get(dept, dept) if dept != current_dept else '',
+                '村里別': village_map.get(f"{dept}_{li}", li),
+                '投開票所別': tbox,
             }
 
-            # Get candidates
-            if is_president:
-                candidates = cand_by_key.get('00', [])
-            elif key_by_dept:
-                candidates = cand_by_key.get(dept, [])
-            else:
-                candidates = cand_by_key.get(area, [])
+            votes_dict = area_votes[key]
+            for i, cand in enumerate(candidates):
+                row_data[f'候選人{i+1}'] = votes_dict.get(cand['no'], 0)
 
-            # Add candidate columns
-            for i in range(max_candidates):
-                if i < len(candidates):
-                    cand = candidates[i]
-                    cand_no = cand['cand_no']
-                    if is_president:
-                        row_data[f'{prefix}{i+1}'] = cand['name']
-                        row_data[f'{prefix}{i+1}_得票數'] = vote_dict.get(cand_no, 0)
-                    else:
-                        row_data[f'{prefix}候選人{i+1}＿候選人名稱'] = cand['name']
-                        row_data[f'{prefix}候選人{i+1}＿黨籍'] = cand['party']
-                        row_data[f'{prefix}候選人{i+1}_得票數'] = vote_dict.get(cand_no, 0)
-                else:
-                    if is_president:
-                        row_data[f'{prefix}{i+1}'] = ''
-                        row_data[f'{prefix}{i+1}_得票數'] = 0
-                    else:
-                        row_data[f'{prefix}候選人{i+1}＿候選人名稱'] = ''
-                        row_data[f'{prefix}候選人{i+1}＿黨籍'] = ''
-                        row_data[f'{prefix}候選人{i+1}_得票數'] = 0
-
-            # Add statistics
-            stats = self._get_stats(df_prof, dept, li)
-            row_data[f'{prefix}有效票數A'] = stats.get('有效票數A', 0)
-            row_data[f'{prefix}無效票數B'] = stats.get('無效票數B', 0)
-            row_data[f'{prefix}投票數C'] = stats.get('投票數C', 0)
-            row_data[f'{prefix}選舉人數G'] = stats.get('選舉人數G', 0)
-
-            rows.append(row_data)
-
-        result = pd.DataFrame(rows)
-        print(f"    [OK] {folder_name}: {len(result)} rows, max {max_candidates} candidates")
-        return result
-
-    def process_party_list(self, max_parties=20) -> pd.DataFrame:
-        """處理不分區政黨
-
-        Args:
-            max_parties: 最大政黨數
-
-        Returns:
-            處理結果 DataFrame
-        """
-        folder_path = self.year_folder / "不分區政黨"
-        if not folder_path.exists():
-            return None
-
-        elctks = find_file(folder_path, ['elctks.csv', 'elctks_T4.csv'])
-        elcand = find_file(folder_path, ['elcand.csv', 'elcand_T4.csv'])
-        elbase = find_file(folder_path, ['elbase.csv', 'elbase_T4.csv'])
-        elprof = folder_path / "elprof.csv"
-
-        if not elctks:
-            return None
-
-        df_tks = pd.read_csv(elctks, header=None, dtype=str)
-
-        prv_str = str(self.prv_code).zfill(2)
-        city_str = str(self.city_code).zfill(3) if self.city_code > 0 else '000'
-
-        df_tks_f = df_tks[(df_tks[0] == prv_str) & (df_tks[1] == city_str)].copy()
-        df_tks_f = df_tks_f[df_tks_f[4] != '0000']
-
-        if df_tks_f.empty:
-            return None
-
-        # Get party names
-        party_names = {}
-        party_order = []
-        if elcand:
-            df_cand = pd.read_csv(elcand, header=None, dtype=str)
-            for _, row in df_cand.iterrows():
-                party_no = str(row[5]).strip()
-                party_name = str(row[6]).strip()
-                if party_no and party_name and party_no not in party_names:
-                    party_names[party_no] = party_name
-                    party_order.append(party_no)
-
-        # Get village names
-        village_map = {}
-        dist_map = {}
-        if elbase:
-            df_base = pd.read_csv(elbase, header=None, dtype=str)
-            df_base_f = df_base[(df_base[0] == prv_str) & (df_base[1] == city_str)]
-            for _, row in df_base_f.iterrows():
-                dept = str(row[3]).strip()
-                li = str(row[4]).strip()
-                name = str(row[5]).strip()
-                if li == '0000':
-                    dist_map[dept] = normalize_district(name)
-                else:
-                    village_map[f"{dept}_{li}"] = name
-
-        # Get statistics
-        stats_map = {}
-        if elprof.exists():
-            df_prof = pd.read_csv(elprof, header=None, dtype=str)
-            df_prof_f = df_prof[(df_prof[0].astype(str) == prv_str) & (df_prof[1].astype(str) == city_str)]
-            for _, row in df_prof_f.iterrows():
-                dept = str(row[3]).strip()
-                li = str(row[4]).strip()
-                if li != '0000':
-                    stats_map[f"{dept}_{li}"] = {
-                        '有效票數A': int(float(row[5])) if pd.notna(row[5]) and row[5] != '' else 0,
-                        '無效票數B': int(float(row[6])) if pd.notna(row[6]) and row[6] != '' else 0,
-                        '投票數C': int(float(row[7])) if pd.notna(row[7]) and row[7] != '' else 0,
-                        '選舉人數G': int(float(row[11])) if len(row) > 11 and pd.notna(row[11]) and row[11] != '' else 0,
-                    }
-
-        # Build votes by village
-        votes_by_village = defaultdict(lambda: defaultdict(int))
-        for _, row in df_tks_f.iterrows():
-            dept = str(row[3]).strip()
-            li = str(row[4]).strip()
-            party_no = str(row[6]).strip()
-            votes = int(float(row[7])) if row[7] != '' else 0
-            key = f"{dept}_{li}"
-            votes_by_village[key][party_no] = votes
-
-        # Build rows
-        rows = []
-        for key, vote_dict in votes_by_village.items():
-            dept, li = key.split('_')
-            dist_name = dist_map.get(dept, '')
-            village_name = village_map.get(key, '')
-
-            if not village_name:
-                continue
-
-            row_data = {
-                '行政區別': dist_name,
-                '鄰里': village_name,
-                '_dept': dept,
-                '_li': li,
-            }
-
-            # Add party columns
-            for i, party_no in enumerate(party_order[:max_parties], 1):
-                party_name = party_names.get(party_no, f'政黨{party_no}')
-                col_name = f'不分區政黨({i})\n\n{party_name}'
-                row_data[col_name] = vote_dict.get(party_no, 0)
-
-            # Add statistics
             stats = stats_map.get(key, {})
-            row_data['不分區政黨有效票數A'] = stats.get('有效票數A', 0)
-            row_data['不分區政黨無效票數B'] = stats.get('無效票數B', 0)
-            row_data['不分區政黨投票數C'] = stats.get('投票數C', 0)
-            row_data['不分區政黨選舉人數G'] = stats.get('選舉人數G', 0)
+            row_data['有效票數'] = stats.get('有效票數', 0)
+            row_data['無效票數'] = stats.get('無效票數', 0)
+            row_data['投票數'] = stats.get('投票數', 0)
+            row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+            row_data['發出票數'] = stats.get('發出票數', 0)
+            row_data['用餘票數'] = stats.get('用餘票數', 0)
+            row_data['選舉人數'] = stats.get('選舉人數', 0)
+            row_data['投票率'] = stats.get('投票率', 0)
 
             rows.append(row_data)
+            current_dept = dept
 
-        result = pd.DataFrame(rows)
-        print(f"    [OK] 不分區政黨: {len(result)} rows, {len(party_order)} parties")
-        return result
+        if rows:
+            results[area] = {
+                'data': pd.DataFrame(rows),
+                'candidates': candidates
+            }
+
+    return results
+
+
+def process_council_county(data_dir, prv_code, city_code, city_name):
+    """處理縣市區域議員選舉資料
+
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省代碼
+        city_code: 縣市代碼
+        city_name: 縣市名稱
+
+    Returns:
+        dict: 各選區的 DataFrame 和候選人資訊
+    """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 資料夾不存在: {data_dir}")
+        return None
+
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
+
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+
+    # 過濾指定縣市
+    df_base = df_base[(df_base[0] == prv_code) & (df_base[1] == city_code)]
+    df_cand = df_cand[(df_cand[0] == prv_code) & (df_cand[1] == city_code)]
+    df_tks = df_tks[(df_tks[0] == prv_code) & (df_tks[1] == city_code)]
+    df_prof = df_prof[(df_prof[0] == prv_code) & (df_prof[1] == city_code)]
+
+    if df_base.empty:
+        print(f"  [SKIP] 無 {city_name} 資料")
+        return None
+
+    # 建立區域名稱對照
+    dist_map = {}
+    village_map = {}
+    for _, row in df_base.iterrows():
+        dept, li, name = row[3], row[4], row[5]
+        if li == '0000' or li == '0':
+            dist_map[dept] = name
+        else:
+            village_map[f"{dept}_{li}"] = name
+
+    # 建立候選人對照
+    cand_by_area = defaultdict(list)
+    for _, row in df_cand.iterrows():
+        cand_by_area[row[2]].append({
+            'no': row[5],
+            'name': row[6],
+            'party': get_party_name(row[7])
+        })
+
+    for area in cand_by_area:
+        cand_by_area[area] = sorted(
+            cand_by_area[area],
+            key=lambda x: int(x['no']) if x['no'].isdigit() else 0
+        )
+
+    # 建立統計資料對照
+    stats_map = {}
+    for _, row in df_prof.iterrows():
+        key = f"{row[3]}_{row[4]}_{row[5]}"
+        valid_votes = clean_number(row[6])
+        invalid_votes = clean_number(row[7])
+        total_votes = clean_number(row[8])
+        eligible_voters = clean_number(row[9]) if len(row) > 9 else 0
+        turnout = float(row[18]) if len(row) > 18 and row[18] else 0
+
+        issued_ballots = total_votes
+        unused_ballots = eligible_voters - issued_ballots
+
+        stats_map[key] = {
+            '有效票數': valid_votes,
+            '無效票數': invalid_votes,
+            '投票數': total_votes,
+            '已領未投票數': 0,
+            '發出票數': issued_ballots,
+            '用餘票數': unused_ballots,
+            '選舉人數': eligible_voters,
+            '投票率': turnout if turnout else (total_votes / eligible_voters * 100 if eligible_voters > 0 else 0)
+        }
+
+    # 處理票數資料
+    vote_data = defaultdict(lambda: defaultdict(dict))
+    for _, row in df_tks.iterrows():
+        key = f"{row[3]}_{row[4]}_{row[5]}"
+        vote_data[row[2]][key][row[6]] = clean_number(row[7])
+
+    # 生成結果
+    results = {}
+    for area in sorted(cand_by_area.keys()):
+        if area == '00':
+            continue
+
+        candidates = cand_by_area[area]
+        area_votes = vote_data[area]
+        rows = []
+        current_dept = None
+
+        sorted_keys = sorted(
+            area_votes.keys(),
+            key=lambda x: (x.split('_')[0], x.split('_')[1], int(x.split('_')[2]) if x.split('_')[2].isdigit() else 0)
+        )
+
+        for key in sorted_keys:
+            parts = key.split('_')
+            dept, li, tbox = parts[0], parts[1], parts[2]
+
+            if li == '0000' or li == '0' or tbox == '0' or tbox == '0000':
+                continue
+
+            row_data = {
+                '行政區別': dist_map.get(dept, dept) if dept != current_dept else '',
+                '村里別': village_map.get(f"{dept}_{li}", li),
+                '投開票所別': tbox,
+            }
+
+            votes_dict = area_votes[key]
+            for i, cand in enumerate(candidates):
+                row_data[f'候選人{i+1}'] = votes_dict.get(cand['no'], 0)
+
+            stats = stats_map.get(key, {})
+            row_data['有效票數'] = stats.get('有效票數', 0)
+            row_data['無效票數'] = stats.get('無效票數', 0)
+            row_data['投票數'] = stats.get('投票數', 0)
+            row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+            row_data['發出票數'] = stats.get('發出票數', 0)
+            row_data['用餘票數'] = stats.get('用餘票數', 0)
+            row_data['選舉人數'] = stats.get('選舉人數', 0)
+            row_data['投票率'] = stats.get('投票率', 0)
+
+            rows.append(row_data)
+            current_dept = dept
+
+        if rows:
+            results[area] = {
+                'data': pd.DataFrame(rows),
+                'candidates': candidates
+            }
+
+    return results
+
+
+def process_mayor_municipality(data_dir, prv_code, city_name):
+    """處理直轄市市長選舉資料
+
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省市代碼
+        city_name: 縣市名稱
+
+    Returns:
+        dict: data DataFrame 和 candidates list
+    """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 資料夾不存在: {data_dir}")
+        return None
+
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
+
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+
+    # 過濾指定縣市
+    df_base = df_base[df_base[0] == prv_code]
+    df_cand = df_cand[df_cand[0] == prv_code]
+    df_tks = df_tks[df_tks[0] == prv_code]
+    df_prof = df_prof[df_prof[0] == prv_code]
+
+    if df_base.empty:
+        print(f"  [SKIP] 無 {city_name} 資料")
+        return None
+
+    # 建立區域名稱對照
+    dist_map = {}
+    village_map = {}
+    for _, row in df_base.iterrows():
+        dept, li, name = row[3], row[4], row[5]
+        if li == '0000' or li == '0':
+            dist_map[dept] = name
+        else:
+            village_map[f"{dept}_{li}"] = name
+
+    # 建立候選人列表
+    candidates = []
+    for _, row in df_cand.iterrows():
+        candidates.append({
+            'no': row[5],
+            'name': row[6],
+            'party': get_party_name(row[7])
+        })
+
+    candidates = sorted(candidates, key=lambda x: int(x['no']) if str(x['no']).isdigit() else 0)
+
+    # 建立統計資料對照 (使用村里彙總列 tbox=0)
+    stats_by_village = {}
+    for _, row in df_prof.iterrows():
+        dept = row[3]
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{dept}_{li}"
+        stats_by_village[key] = {
+            '有效票數': clean_number(row[6]),
+            '無效票數': clean_number(row[7]),
+            '投票數': clean_number(row[8]),
+            '選舉人數': clean_number(row[9]) if len(row) > 9 else 0,
+        }
+
+    # 計算衍生欄位
+    for key in stats_by_village:
+        stats = stats_by_village[key]
+        total_votes = stats['投票數']
+        eligible_voters = stats['選舉人數']
+        stats['已領未投票數'] = 0
+        stats['發出票數'] = total_votes
+        stats['用餘票數'] = eligible_voters - total_votes if eligible_voters > total_votes else 0
+        stats['投票率'] = round(total_votes / eligible_voters * 100, 2) if eligible_voters > 0 else 0
+
+    # 使用村里彙總列的票數
+    votes_by_village = defaultdict(lambda: defaultdict(int))
+    for _, row in df_tks.iterrows():
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{row[3]}_{li}"
+        votes_by_village[key][row[6]] = clean_number(row[7])
+
+    # 計算區級和總計彙總
+    dept_totals = defaultdict(lambda: {'votes': defaultdict(int), 'stats': defaultdict(int)})
+    grand_total = {'votes': defaultdict(int), 'stats': defaultdict(int)}
+
+    for key in votes_by_village.keys():
+        parts = key.split('_')
+        dept = parts[0]
+
+        votes_dict = votes_by_village[key]
+        stats = stats_by_village.get(key, {})
+
+        for cand_no, votes in votes_dict.items():
+            dept_totals[dept]['votes'][cand_no] += votes
+            grand_total['votes'][cand_no] += votes
+
+        for stat_key in ['有效票數', '無效票數', '投票數', '已領未投票數', '發出票數', '用餘票數', '選舉人數']:
+            dept_totals[dept]['stats'][stat_key] += stats.get(stat_key, 0)
+            grand_total['stats'][stat_key] += stats.get(stat_key, 0)
+
+    # 計算投票率
+    if grand_total['stats']['選舉人數'] > 0:
+        grand_total['stats']['投票率'] = round(grand_total['stats']['投票數'] / grand_total['stats']['選舉人數'] * 100, 2)
+
+    for dept in dept_totals:
+        if dept_totals[dept]['stats']['選舉人數'] > 0:
+            dept_totals[dept]['stats']['投票率'] = round(dept_totals[dept]['stats']['投票數'] / dept_totals[dept]['stats']['選舉人數'] * 100, 2)
+
+    # 生成資料列
+    rows = []
+    current_dept = None
+
+    for key in sorted(votes_by_village.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+        parts = key.split('_')
+        dept, li = parts[0], parts[1]
+
+        dist_name = dist_map.get(dept, dept)
+        village_name = village_map.get(key, li)
+
+        row_data = {
+            '行政區別': dist_name if dept != current_dept else '',
+            '村里別': village_name,
+        }
+
+        votes_dict = votes_by_village[key]
+        for i, cand in enumerate(candidates):
+            row_data[f'候選人{i+1}'] = votes_dict.get(cand['no'], 0)
+
+        stats = stats_by_village.get(key, {})
+        row_data['有效票數'] = stats.get('有效票數', 0)
+        row_data['無效票數'] = stats.get('無效票數', 0)
+        row_data['投票數'] = stats.get('投票數', 0)
+        row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+        row_data['發出票數'] = stats.get('發出票數', 0)
+        row_data['用餘票數'] = stats.get('用餘票數', 0)
+        row_data['選舉人數'] = stats.get('選舉人數', 0)
+        row_data['投票率'] = stats.get('投票率', 0)
+
+        rows.append(row_data)
+        current_dept = dept
+
+    if rows:
+        return {
+            'data': pd.DataFrame(rows),
+            'candidates': candidates,
+            'dept_totals': dept_totals,
+            'grand_total': grand_total,
+            'dist_map': dist_map,
+        }
+
+    return None
+
+
+def process_mayor_county(data_dir, prv_code, city_code, city_name):
+    """處理縣市市長選舉資料
+
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省代碼
+        city_code: 縣市代碼
+        city_name: 縣市名稱
+
+    Returns:
+        dict: data DataFrame 和 candidates list
+    """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 資料夾不存在: {data_dir}")
+        return None
+
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
+
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+
+    # 過濾指定縣市
+    df_base = df_base[(df_base[0] == prv_code) & (df_base[1] == city_code)]
+    df_cand = df_cand[(df_cand[0] == prv_code) & (df_cand[1] == city_code)]
+    df_tks = df_tks[(df_tks[0] == prv_code) & (df_tks[1] == city_code)]
+    df_prof = df_prof[(df_prof[0] == prv_code) & (df_prof[1] == city_code)]
+
+    if df_base.empty:
+        print(f"  [SKIP] 無 {city_name} 資料")
+        return None
+
+    # 建立區域名稱對照
+    dist_map = {}
+    village_map = {}
+    for _, row in df_base.iterrows():
+        dept, li, name = row[3], row[4], row[5]
+        if li == '0000' or li == '0':
+            dist_map[dept] = name
+        else:
+            village_map[f"{dept}_{li}"] = name
+
+    # 建立候選人列表
+    candidates = []
+    for _, row in df_cand.iterrows():
+        candidates.append({
+            'no': row[5],
+            'name': row[6],
+            'party': get_party_name(row[7])
+        })
+
+    candidates = sorted(candidates, key=lambda x: int(x['no']) if str(x['no']).isdigit() else 0)
+
+    # 建立統計資料對照 (使用村里彙總列 tbox=0)
+    stats_by_village = {}
+    for _, row in df_prof.iterrows():
+        dept = row[3]
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{dept}_{li}"
+        stats_by_village[key] = {
+            '有效票數': clean_number(row[6]),
+            '無效票數': clean_number(row[7]),
+            '投票數': clean_number(row[8]),
+            '選舉人數': clean_number(row[9]) if len(row) > 9 else 0,
+        }
+
+    # 計算衍生欄位
+    for key in stats_by_village:
+        stats = stats_by_village[key]
+        total_votes = stats['投票數']
+        eligible_voters = stats['選舉人數']
+        stats['已領未投票數'] = 0
+        stats['發出票數'] = total_votes
+        stats['用餘票數'] = eligible_voters - total_votes if eligible_voters > total_votes else 0
+        stats['投票率'] = round(total_votes / eligible_voters * 100, 2) if eligible_voters > 0 else 0
+
+    # 使用村里彙總列的票數
+    votes_by_village = defaultdict(lambda: defaultdict(int))
+    for _, row in df_tks.iterrows():
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{row[3]}_{li}"
+        votes_by_village[key][row[6]] = clean_number(row[7])
+
+    # 計算區級和總計彙總
+    dept_totals = defaultdict(lambda: {'votes': defaultdict(int), 'stats': defaultdict(int)})
+    grand_total = {'votes': defaultdict(int), 'stats': defaultdict(int)}
+
+    for key in votes_by_village.keys():
+        parts = key.split('_')
+        dept = parts[0]
+
+        votes_dict = votes_by_village[key]
+        stats = stats_by_village.get(key, {})
+
+        for cand_no, votes in votes_dict.items():
+            dept_totals[dept]['votes'][cand_no] += votes
+            grand_total['votes'][cand_no] += votes
+
+        for stat_key in ['有效票數', '無效票數', '投票數', '已領未投票數', '發出票數', '用餘票數', '選舉人數']:
+            dept_totals[dept]['stats'][stat_key] += stats.get(stat_key, 0)
+            grand_total['stats'][stat_key] += stats.get(stat_key, 0)
+
+    # 計算投票率
+    if grand_total['stats']['選舉人數'] > 0:
+        grand_total['stats']['投票率'] = round(grand_total['stats']['投票數'] / grand_total['stats']['選舉人數'] * 100, 2)
+
+    for dept in dept_totals:
+        if dept_totals[dept]['stats']['選舉人數'] > 0:
+            dept_totals[dept]['stats']['投票率'] = round(dept_totals[dept]['stats']['投票數'] / dept_totals[dept]['stats']['選舉人數'] * 100, 2)
+
+    # 生成資料列
+    rows = []
+    current_dept = None
+
+    for key in sorted(votes_by_village.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+        parts = key.split('_')
+        dept, li = parts[0], parts[1]
+
+        dist_name = dist_map.get(dept, dept)
+        village_name = village_map.get(key, li)
+
+        row_data = {
+            '行政區別': dist_name if dept != current_dept else '',
+            '村里別': village_name,
+        }
+
+        votes_dict = votes_by_village[key]
+        for i, cand in enumerate(candidates):
+            row_data[f'候選人{i+1}'] = votes_dict.get(cand['no'], 0)
+
+        stats = stats_by_village.get(key, {})
+        row_data['有效票數'] = stats.get('有效票數', 0)
+        row_data['無效票數'] = stats.get('無效票數', 0)
+        row_data['投票數'] = stats.get('投票數', 0)
+        row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+        row_data['發出票數'] = stats.get('發出票數', 0)
+        row_data['用餘票數'] = stats.get('用餘票數', 0)
+        row_data['選舉人數'] = stats.get('選舉人數', 0)
+        row_data['投票率'] = stats.get('投票率', 0)
+
+        rows.append(row_data)
+        current_dept = dept
+
+    if rows:
+        return {
+            'data': pd.DataFrame(rows),
+            'candidates': candidates,
+            'dept_totals': dept_totals,
+            'grand_total': grand_total,
+            'dist_map': dist_map,
+        }
+
+    return None
+
+
+def process_legislator(data_dir, prv_code, city_code, city_name):
+    """處理區域立委選舉資料
+
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省代碼
+        city_code: 縣市代碼
+        city_name: 縣市名稱
+
+    Returns:
+        dict: 各選區的 DataFrame 和候選人資訊
+    """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 資料夾不存在: {data_dir}")
+        return None
+
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
+
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+
+    # 過濾指定縣市
+    if city_code == '000':
+        # 直轄市
+        df_base = df_base[df_base[0] == prv_code]
+        df_cand = df_cand[df_cand[0] == prv_code]
+        df_tks = df_tks[df_tks[0] == prv_code]
+        df_prof = df_prof[df_prof[0] == prv_code]
+    else:
+        # 縣市
+        df_base = df_base[(df_base[0] == prv_code) & (df_base[1] == city_code)]
+        df_cand = df_cand[(df_cand[0] == prv_code) & (df_cand[1] == city_code)]
+        df_tks = df_tks[(df_tks[0] == prv_code) & (df_tks[1] == city_code)]
+        df_prof = df_prof[(df_prof[0] == prv_code) & (df_prof[1] == city_code)]
+
+    if df_base.empty:
+        print(f"  [SKIP] 無 {city_name} 資料")
+        return None
+
+    # 建立區域名稱對照
+    dist_map = {}
+    village_map = {}
+    for _, row in df_base.iterrows():
+        dept, li, name = row[3], row[4], row[5]
+        if li == '0000' or li == '0':
+            dist_map[dept] = name
+        else:
+            village_map[f"{dept}_{li}"] = name
+
+    # 建立候選人對照 (按選區)
+    cand_by_area = defaultdict(list)
+    for _, row in df_cand.iterrows():
+        cand_by_area[row[2]].append({
+            'no': row[5],
+            'name': row[6],
+            'party': get_party_name(row[7])
+        })
+
+    for area in cand_by_area:
+        cand_by_area[area] = sorted(
+            cand_by_area[area],
+            key=lambda x: int(x['no']) if str(x['no']).isdigit() else 0
+        )
+
+    # 建立統計資料對照 (使用村里彙總列 tbox=0)
+    stats_map = {}
+    for _, row in df_prof.iterrows():
+        dept = row[3]
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{row[2]}_{dept}_{li}"
+        valid_votes = clean_number(row[6])
+        invalid_votes = clean_number(row[7])
+        total_votes = clean_number(row[8])
+        eligible_voters = clean_number(row[9]) if len(row) > 9 else 0
+
+        issued_ballots = total_votes
+        unused_ballots = eligible_voters - issued_ballots if eligible_voters > issued_ballots else 0
+
+        stats_map[key] = {
+            '有效票數': valid_votes,
+            '無效票數': invalid_votes,
+            '投票數': total_votes,
+            '已領未投票數': 0,
+            '發出票數': issued_ballots,
+            '用餘票數': unused_ballots,
+            '選舉人數': eligible_voters,
+            '投票率': round(total_votes / eligible_voters * 100, 2) if eligible_voters > 0 else 0
+        }
+
+    # 處理票數資料 (使用村里彙總列)
+    vote_data = defaultdict(lambda: defaultdict(dict))
+    for _, row in df_tks.iterrows():
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{row[3]}_{li}"
+        vote_data[row[2]][key][row[6]] = clean_number(row[7])
+
+    # 生成各選區結果
+    results = {}
+    for area in sorted(cand_by_area.keys()):
+        if area == '0' or area == '00':
+            continue
+
+        candidates = cand_by_area[area]
+        area_votes = vote_data.get(area, {})
+        rows = []
+        current_dept = None
+
+        # 計算區級和總計彙總
+        dept_totals = defaultdict(lambda: {'votes': defaultdict(int), 'stats': defaultdict(int)})
+        grand_total = {'votes': defaultdict(int), 'stats': defaultdict(int)}
+
+        for key in sorted(area_votes.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+            parts = key.split('_')
+            dept, li = parts[0], parts[1]
+
+            votes_dict = area_votes[key]
+            stats_key = f"{area}_{dept}_{li}"
+            stats = stats_map.get(stats_key, {})
+
+            for cand_no, votes in votes_dict.items():
+                dept_totals[dept]['votes'][cand_no] += votes
+                grand_total['votes'][cand_no] += votes
+
+            for stat_key in ['有效票數', '無效票數', '投票數', '已領未投票數', '發出票數', '用餘票數', '選舉人數']:
+                dept_totals[dept]['stats'][stat_key] += stats.get(stat_key, 0)
+                grand_total['stats'][stat_key] += stats.get(stat_key, 0)
+
+        # 計算投票率
+        if grand_total['stats']['選舉人數'] > 0:
+            grand_total['stats']['投票率'] = round(grand_total['stats']['投票數'] / grand_total['stats']['選舉人數'] * 100, 2)
+
+        for dept in dept_totals:
+            if dept_totals[dept]['stats']['選舉人數'] > 0:
+                dept_totals[dept]['stats']['投票率'] = round(dept_totals[dept]['stats']['投票數'] / dept_totals[dept]['stats']['選舉人數'] * 100, 2)
+
+        # 生成資料列
+        for key in sorted(area_votes.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+            parts = key.split('_')
+            dept, li = parts[0], parts[1]
+
+            dist_name = dist_map.get(dept, dept)
+            village_name = village_map.get(key, li)
+
+            row_data = {
+                '行政區別': dist_name if dept != current_dept else '',
+                '村里別': village_name,
+            }
+
+            votes_dict = area_votes[key]
+            for i, cand in enumerate(candidates):
+                row_data[f'候選人{i+1}'] = votes_dict.get(cand['no'], 0)
+
+            stats_key = f"{area}_{dept}_{li}"
+            stats = stats_map.get(stats_key, {})
+            row_data['有效票數'] = stats.get('有效票數', 0)
+            row_data['無效票數'] = stats.get('無效票數', 0)
+            row_data['投票數'] = stats.get('投票數', 0)
+            row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+            row_data['發出票數'] = stats.get('發出票數', 0)
+            row_data['用餘票數'] = stats.get('用餘票數', 0)
+            row_data['選舉人數'] = stats.get('選舉人數', 0)
+            row_data['投票率'] = stats.get('投票率', 0)
+
+            rows.append(row_data)
+            current_dept = dept
+
+        if rows:
+            results[area] = {
+                'data': pd.DataFrame(rows),
+                'candidates': candidates,
+                'dept_totals': dept_totals,
+                'grand_total': grand_total,
+                'dist_map': dist_map,
+            }
+
+    return results if results else None
+
+
+def process_president(data_dir, prv_code, city_code, city_name):
+    """處理總統選舉資料
+
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省代碼
+        city_code: 縣市代碼
+        city_name: 縣市名稱
+
+    Returns:
+        dict: data DataFrame 和 candidates list (總統選舉)
+    """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 總統 - 資料夾不存在")
+        return None
+
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
+
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+
+    # 過濾指定縣市
+    if city_code == '000':
+        df_base_city = df_base[df_base[0] == prv_code]
+        df_tks_city = df_tks[df_tks[0] == prv_code]
+        df_prof_city = df_prof[df_prof[0] == prv_code]
+    else:
+        df_base_city = df_base[(df_base[0] == prv_code) & (df_base[1] == city_code)]
+        df_tks_city = df_tks[(df_tks[0] == prv_code) & (df_tks[1] == city_code)]
+        df_prof_city = df_prof[(df_prof[0] == prv_code) & (df_prof[1] == city_code)]
+
+    # 候選人是全國層級
+    df_cand_nat = df_cand[(df_cand[0] == '0') | (df_cand[0] == '00')]
+
+    if df_base_city.empty:
+        print(f"  [SKIP] 總統 - 無 {city_name} 資料")
+        return None
+
+    # 建立區域名稱對照
+    dist_map = {}
+    village_map = {}
+    for _, row in df_base_city.iterrows():
+        dept, li, name = row[3], row[4], row[5]
+        if li == '0000' or li == '0':
+            dist_map[dept] = name
+        else:
+            village_map[f"{dept}_{li}"] = name
+
+    # 建立候選人列表
+    cand_by_no = defaultdict(list)
+    for _, row in df_cand_nat.iterrows():
+        cand_by_no[row[5]].append({
+            'name': row[6],
+            'party': get_party_name(row[7])
+        })
+
+    candidates = []
+    for cand_no in sorted(cand_by_no.keys(), key=lambda x: int(x) if x.isdigit() else 0):
+        items = cand_by_no[cand_no]
+        # 總統副總統組合名稱
+        if len(items) >= 2:
+            combined_name = f"{items[0]['name']}\n{items[1]['name']}"
+        else:
+            combined_name = items[0]['name'] if items else ''
+        candidates.append({
+            'no': cand_no,
+            'name': combined_name,
+            'party': items[0]['party'] if items else ''
+        })
+
+    # 建立統計資料對照 (使用村里彙總列 tbox=0000)
+    stats_by_village = {}
+    for _, row in df_prof_city.iterrows():
+        dept = row[3]
+        li = row[4]
+        tbox = row[5]
+
+        # 只使用村里層級彙總列 (tbox=0000, li != 0000)
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0000':
+            continue
+
+        key = f"{dept}_{li}"
+        stats_by_village[key] = {
+            '有效票數': clean_number(row[6]),
+            '無效票數': clean_number(row[7]),
+            '投票數': clean_number(row[8]),
+            '選舉人數': clean_number(row[9]) if len(row) > 9 else 0,
+        }
+
+    # 計算衍生欄位
+    for key in stats_by_village:
+        stats = stats_by_village[key]
+        total_votes = stats['投票數']
+        eligible_voters = stats['選舉人數']
+        stats['已領未投票數'] = 0
+        stats['發出票數'] = total_votes
+        stats['用餘票數'] = eligible_voters - total_votes if eligible_voters > total_votes else 0
+        stats['投票率'] = round(total_votes / eligible_voters * 100, 2) if eligible_voters > 0 else 0
+
+    # 使用村里彙總列的票數 (tbox=0000)
+    votes_by_village = defaultdict(lambda: defaultdict(int))
+    for _, row in df_tks_city.iterrows():
+        li = row[4]
+        tbox = row[5]
+
+        # 只使用村里層級彙總列 (tbox=0000, li != 0000)
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0000':
+            continue
+
+        key = f"{row[3]}_{li}"
+        votes_by_village[key][row[6]] = clean_number(row[7])
+
+    # 生成結果 - 按行政區分組
+    rows = []
+    current_dept = None
+
+    # 計算區級和總計彙總
+    dept_totals = defaultdict(lambda: {'votes': defaultdict(int), 'stats': defaultdict(int)})
+    grand_total = {'votes': defaultdict(int), 'stats': defaultdict(int)}
+
+    for key in sorted(votes_by_village.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+        parts = key.split('_')
+        dept, li = parts[0], parts[1]
+
+        votes_dict = votes_by_village[key]
+        stats = stats_by_village.get(key, {})
+
+        # 累加到區級統計
+        for cand_no, votes in votes_dict.items():
+            dept_totals[dept]['votes'][cand_no] += votes
+            grand_total['votes'][cand_no] += votes
+
+        for stat_key in ['有效票數', '無效票數', '投票數', '已領未投票數', '發出票數', '用餘票數', '選舉人數']:
+            dept_totals[dept]['stats'][stat_key] += stats.get(stat_key, 0)
+            grand_total['stats'][stat_key] += stats.get(stat_key, 0)
+
+    # 計算投票率
+    if grand_total['stats']['選舉人數'] > 0:
+        grand_total['stats']['投票率'] = round(grand_total['stats']['投票數'] / grand_total['stats']['選舉人數'] * 100, 2)
+
+    for dept in dept_totals:
+        if dept_totals[dept]['stats']['選舉人數'] > 0:
+            dept_totals[dept]['stats']['投票率'] = round(dept_totals[dept]['stats']['投票數'] / dept_totals[dept]['stats']['選舉人數'] * 100, 2)
+
+    # 生成資料列
+    for key in sorted(votes_by_village.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+        parts = key.split('_')
+        dept, li = parts[0], parts[1]
+
+        dist_name = dist_map.get(dept, dept)
+        village_name = village_map.get(key, li)
+
+        row_data = {
+            '行政區別': dist_name if dept != current_dept else '',
+            '村里別': village_name,
+        }
+
+        votes_dict = votes_by_village[key]
+        for i, cand in enumerate(candidates):
+            row_data[f'候選人{i+1}'] = votes_dict.get(cand['no'], 0)
+
+        stats = stats_by_village.get(key, {})
+        row_data['有效票數'] = stats.get('有效票數', 0)
+        row_data['無效票數'] = stats.get('無效票數', 0)
+        row_data['投票數'] = stats.get('投票數', 0)
+        row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+        row_data['發出票數'] = stats.get('發出票數', 0)
+        row_data['用餘票數'] = stats.get('用餘票數', 0)
+        row_data['選舉人數'] = stats.get('選舉人數', 0)
+        row_data['投票率'] = stats.get('投票率', 0)
+
+        rows.append(row_data)
+        current_dept = dept
+
+    if rows:
+        return {
+            'data': pd.DataFrame(rows),
+            'candidates': candidates,
+            'dept_totals': dept_totals,
+            'grand_total': grand_total,
+            'dist_map': dist_map,
+        }
+
+    return None
+
+
+def process_township_mayor(data_dir, prv_code, city_code, city_name):
+    """處理縣市鄉鎮市長選舉資料
+
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省代碼
+        city_code: 縣市代碼
+        city_name: 縣市名稱
+
+    Returns:
+        dict: 各鄉鎮市的 DataFrame 和候選人資訊
+    """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 資料夾不存在: {data_dir}")
+        return None
+
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
+
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+
+    # 過濾指定縣市
+    df_base = df_base[(df_base[0] == prv_code) & (df_base[1] == city_code)]
+    df_cand = df_cand[(df_cand[0] == prv_code) & (df_cand[1] == city_code)]
+    df_tks = df_tks[(df_tks[0] == prv_code) & (df_tks[1] == city_code)]
+    df_prof = df_prof[(df_prof[0] == prv_code) & (df_prof[1] == city_code)]
+
+    if df_base.empty:
+        print(f"  [SKIP] 無 {city_name} 鄉鎮市長資料")
+        return None
+
+    # 建立區域名稱對照（鄉鎮市區）
+    dist_map = {}
+    village_map = {}
+    for _, row in df_base.iterrows():
+        area = row[2]  # 選區代碼（鄉鎮市區）
+        dept = row[3]
+        li = row[4]
+        name = row[5]
+        if li == '0000' or li == '0':
+            dist_map[f"{area}_{dept}"] = name
+        else:
+            village_map[f"{area}_{dept}_{li}"] = name
+
+    # 建立候選人對照（按鄉鎮市區分組）
+    cand_by_area = defaultdict(list)
+    for _, row in df_cand.iterrows():
+        cand_by_area[row[2]].append({
+            'no': row[5],
+            'name': row[6],
+            'party': get_party_name(row[7])
+        })
+
+    for area in cand_by_area:
+        cand_by_area[area] = sorted(
+            cand_by_area[area],
+            key=lambda x: int(x['no']) if str(x['no']).isdigit() else 0
+        )
+
+    # 建立統計資料對照 (使用村里彙總列 tbox=0)
+    stats_map = {}
+    for _, row in df_prof.iterrows():
+        area = row[2]
+        dept = row[3]
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{area}_{dept}_{li}"
+        stats_map[key] = {
+            '有效票數': clean_number(row[6]),
+            '無效票數': clean_number(row[7]),
+            '投票數': clean_number(row[8]),
+            '選舉人數': clean_number(row[9]) if len(row) > 9 else 0,
+        }
+
+    # 計算衍生欄位
+    for key in stats_map:
+        stats = stats_map[key]
+        total_votes = stats['投票數']
+        eligible_voters = stats['選舉人數']
+        stats['已領未投票數'] = 0
+        stats['發出票數'] = total_votes
+        stats['用餘票數'] = eligible_voters - total_votes if eligible_voters > total_votes else 0
+        stats['投票率'] = round(total_votes / eligible_voters * 100, 2) if eligible_voters > 0 else 0
+
+    # 使用村里彙總列的票數
+    vote_data = defaultdict(lambda: defaultdict(dict))
+    for _, row in df_tks.iterrows():
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{row[3]}_{li}"
+        vote_data[row[2]][key][row[6]] = clean_number(row[7])
+
+    # 生成各鄉鎮市區結果
+    results = {}
+    for area in sorted(cand_by_area.keys()):
+        if area == '0' or area == '00':
+            continue
+
+        candidates = cand_by_area[area]
+        area_votes = vote_data.get(area, {})
+        area_rows = []
+        current_dept = None
+
+        # 取得鄉鎮市區名稱
+        area_name = None
+        for key, name in dist_map.items():
+            if key.startswith(f"{area}_"):
+                area_name = name
+                break
+
+        # 計算區級和總計彙總
+        dept_totals = defaultdict(lambda: {'votes': defaultdict(int), 'stats': defaultdict(int)})
+        grand_total = {'votes': defaultdict(int), 'stats': defaultdict(int)}
+
+        for key in sorted(area_votes.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+            parts = key.split('_')
+            dept, li = parts[0], parts[1]
+
+            votes_dict = area_votes[key]
+            stats_key = f"{area}_{dept}_{li}"
+            stats = stats_map.get(stats_key, {})
+
+            for cand_no, votes in votes_dict.items():
+                dept_totals[dept]['votes'][cand_no] += votes
+                grand_total['votes'][cand_no] += votes
+
+            for stat_key in ['有效票數', '無效票數', '投票數', '已領未投票數', '發出票數', '用餘票數', '選舉人數']:
+                dept_totals[dept]['stats'][stat_key] += stats.get(stat_key, 0)
+                grand_total['stats'][stat_key] += stats.get(stat_key, 0)
+
+        # 計算投票率
+        if grand_total['stats']['選舉人數'] > 0:
+            grand_total['stats']['投票率'] = round(grand_total['stats']['投票數'] / grand_total['stats']['選舉人數'] * 100, 2)
+
+        for dept in dept_totals:
+            if dept_totals[dept]['stats']['選舉人數'] > 0:
+                dept_totals[dept]['stats']['投票率'] = round(dept_totals[dept]['stats']['投票數'] / dept_totals[dept]['stats']['選舉人數'] * 100, 2)
+
+        # 生成資料列
+        for key in sorted(area_votes.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+            parts = key.split('_')
+            dept, li = parts[0], parts[1]
+
+            dist_name_val = dist_map.get(f"{area}_{dept}", dept)
+            village_name = village_map.get(f"{area}_{dept}_{li}", li)
+
+            row_data = {
+                '行政區別': dist_name_val if dept != current_dept else '',
+                '村里別': village_name,
+            }
+
+            votes_dict = area_votes[key]
+            for i, cand in enumerate(candidates):
+                row_data[f'候選人{i+1}'] = votes_dict.get(cand['no'], 0)
+
+            stats_key = f"{area}_{dept}_{li}"
+            stats = stats_map.get(stats_key, {})
+            row_data['有效票數'] = stats.get('有效票數', 0)
+            row_data['無效票數'] = stats.get('無效票數', 0)
+            row_data['投票數'] = stats.get('投票數', 0)
+            row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+            row_data['發出票數'] = stats.get('發出票數', 0)
+            row_data['用餘票數'] = stats.get('用餘票數', 0)
+            row_data['選舉人數'] = stats.get('選舉人數', 0)
+            row_data['投票率'] = stats.get('投票率', 0)
+
+            area_rows.append(row_data)
+            current_dept = dept
+
+        if area_rows:
+            results[area] = {
+                'data': pd.DataFrame(area_rows),
+                'candidates': candidates,
+                'dept_totals': dept_totals,
+                'grand_total': grand_total,
+                'dist_map': {k: v for k, v in dist_map.items() if k.startswith(f"{area}_")},
+                'area_name': area_name,
+            }
+
+    return results if results else None
+
+
+def process_indigenous_legislator(data_dir, prv_code, city_code, city_name, legislator_type='mountain'):
+    """處理原住民立委選舉資料（山地/平地）
+
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省代碼
+        city_code: 縣市代碼
+        city_name: 縣市名稱
+        legislator_type: 'mountain' 或 'plain'
+
+    Returns:
+        dict: data DataFrame 和 candidates list
+    """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 資料夾不存在: {data_dir}")
+        return None
+
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
+
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+
+    # 過濾指定縣市
+    if city_code == '000':
+        df_base = df_base[df_base[0] == prv_code]
+        df_tks = df_tks[df_tks[0] == prv_code]
+        df_prof = df_prof[df_prof[0] == prv_code]
+    else:
+        df_base = df_base[(df_base[0] == prv_code) & (df_base[1] == city_code)]
+        df_tks = df_tks[(df_tks[0] == prv_code) & (df_tks[1] == city_code)]
+        df_prof = df_prof[(df_prof[0] == prv_code) & (df_prof[1] == city_code)]
+
+    # 候選人是全國層級
+    df_cand_nat = df_cand[(df_cand[2] == '01') | (df_cand[2] == '1')]
+
+    if df_base.empty:
+        type_name = '山地' if legislator_type == 'mountain' else '平地'
+        print(f"  [SKIP] {type_name}原住民立委 - 無 {city_name} 資料")
+        return None
+
+    # 建立區域名稱對照
+    indigenous_dist_map = {}
+    indigenous_village_map = {}
+    for _, row in df_base.iterrows():
+        dept, li, name = row[3], row[4], row[5]
+        if li == '0000' or li == '0':
+            indigenous_dist_map[dept] = name
+        else:
+            indigenous_village_map[f"{dept}_{li}"] = name
+
+    # 建立候選人列表
+    indigenous_candidates = []
+    for _, row in df_cand_nat.iterrows():
+        indigenous_candidates.append({
+            'no': row[5],
+            'name': row[6],
+            'party': get_party_name(row[7])
+        })
+
+    indigenous_candidates = sorted(indigenous_candidates, key=lambda x: int(x['no']) if str(x['no']).isdigit() else 0)
+
+    if not indigenous_candidates:
+        return None
+
+    # 建立統計資料對照 (使用村里彙總列 tbox=0)
+    indigenous_stats_by_village = {}
+    for _, row in df_prof.iterrows():
+        dept = row[3]
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{dept}_{li}"
+        indigenous_stats_by_village[key] = {
+            '有效票數': clean_number(row[6]),
+            '無效票數': clean_number(row[7]),
+            '投票數': clean_number(row[8]),
+            '選舉人數': clean_number(row[9]) if len(row) > 9 else 0,
+        }
+
+    # 計算衍生欄位
+    for key in indigenous_stats_by_village:
+        stats = indigenous_stats_by_village[key]
+        total_votes = stats['投票數']
+        eligible_voters = stats['選舉人數']
+        stats['已領未投票數'] = 0
+        stats['發出票數'] = total_votes
+        stats['用餘票數'] = eligible_voters - total_votes if eligible_voters > total_votes else 0
+        stats['投票率'] = round(total_votes / eligible_voters * 100, 2) if eligible_voters > 0 else 0
+
+    # 使用村里彙總列的票數
+    indigenous_votes_by_village = defaultdict(lambda: defaultdict(int))
+    for _, row in df_tks.iterrows():
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{row[3]}_{li}"
+        indigenous_votes_by_village[key][row[6]] = clean_number(row[7])
+
+    if not indigenous_votes_by_village:
+        return None
+
+    # 計算區級和總計彙總
+    indigenous_dept_totals = defaultdict(lambda: {'votes': defaultdict(int), 'stats': defaultdict(int)})
+    indigenous_grand_total = {'votes': defaultdict(int), 'stats': defaultdict(int)}
+
+    for key in indigenous_votes_by_village.keys():
+        parts = key.split('_')
+        dept = parts[0]
+
+        votes_dict = indigenous_votes_by_village[key]
+        stats = indigenous_stats_by_village.get(key, {})
+
+        for cand_no, votes in votes_dict.items():
+            indigenous_dept_totals[dept]['votes'][cand_no] += votes
+            indigenous_grand_total['votes'][cand_no] += votes
+
+        for stat_key in ['有效票數', '無效票數', '投票數', '已領未投票數', '發出票數', '用餘票數', '選舉人數']:
+            indigenous_dept_totals[dept]['stats'][stat_key] += stats.get(stat_key, 0)
+            indigenous_grand_total['stats'][stat_key] += stats.get(stat_key, 0)
+
+    # 計算投票率
+    if indigenous_grand_total['stats']['選舉人數'] > 0:
+        indigenous_grand_total['stats']['投票率'] = round(indigenous_grand_total['stats']['投票數'] / indigenous_grand_total['stats']['選舉人數'] * 100, 2)
+
+    for dept in indigenous_dept_totals:
+        if indigenous_dept_totals[dept]['stats']['選舉人數'] > 0:
+            indigenous_dept_totals[dept]['stats']['投票率'] = round(indigenous_dept_totals[dept]['stats']['投票數'] / indigenous_dept_totals[dept]['stats']['選舉人數'] * 100, 2)
+
+    # 生成資料列
+    indigenous_rows = []
+    current_dept = None
+
+    for key in sorted(indigenous_votes_by_village.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+        parts = key.split('_')
+        dept, li = parts[0], parts[1]
+
+        dist_name_val = indigenous_dist_map.get(dept, dept)
+        village_name = indigenous_village_map.get(key, li)
+
+        row_data = {
+            '行政區別': dist_name_val if dept != current_dept else '',
+            '村里別': village_name,
+        }
+
+        votes_dict = indigenous_votes_by_village[key]
+        for i, cand in enumerate(indigenous_candidates):
+            row_data[f'候選人{i+1}'] = votes_dict.get(cand['no'], 0)
+
+        stats = indigenous_stats_by_village.get(key, {})
+        row_data['有效票數'] = stats.get('有效票數', 0)
+        row_data['無效票數'] = stats.get('無效票數', 0)
+        row_data['投票數'] = stats.get('投票數', 0)
+        row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+        row_data['發出票數'] = stats.get('發出票數', 0)
+        row_data['用餘票數'] = stats.get('用餘票數', 0)
+        row_data['選舉人數'] = stats.get('選舉人數', 0)
+        row_data['投票率'] = stats.get('投票率', 0)
+
+        indigenous_rows.append(row_data)
+        current_dept = dept
+
+    if indigenous_rows:
+        return {
+            'data': pd.DataFrame(indigenous_rows),
+            'candidates': indigenous_candidates,
+            'dept_totals': indigenous_dept_totals,
+            'grand_total': indigenous_grand_total,
+            'dist_map': indigenous_dist_map,
+        }
+
+    return None
+
+
+def process_party_vote(data_dir, prv_code, city_code, city_name):
+    """處理不分區政黨票選舉資料
+
+    Args:
+        data_dir: 選舉資料目錄路徑
+        prv_code: 省代碼
+        city_code: 縣市代碼
+        city_name: 縣市名稱
+
+    Returns:
+        dict: data DataFrame 和 parties list
+    """
+    if not os.path.exists(data_dir):
+        print(f"  [SKIP] 資料夾不存在: {data_dir}")
+        return None
+
+    load_party_map(os.path.join(data_dir, 'elpaty.csv'))
+
+    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+
+    # 過濾指定縣市
+    if city_code == '000':
+        df_base = df_base[df_base[0] == prv_code]
+        df_tks = df_tks[df_tks[0] == prv_code]
+        df_prof = df_prof[df_prof[0] == prv_code]
+    else:
+        df_base = df_base[(df_base[0] == prv_code) & (df_base[1] == city_code)]
+        df_tks = df_tks[(df_tks[0] == prv_code) & (df_tks[1] == city_code)]
+        df_prof = df_prof[(df_prof[0] == prv_code) & (df_prof[1] == city_code)]
+
+    # 政黨（候選人）是全國層級，不過濾
+    df_cand_nat = df_cand
+
+    if df_base.empty:
+        print(f"  [SKIP] 政黨票 - 無 {city_name} 資料")
+        return None
+
+    # 建立區域名稱對照
+    party_dist_map = {}
+    party_village_map = {}
+    for _, row in df_base.iterrows():
+        dept, li, name = row[3], row[4], row[5]
+        if li == '0000' or li == '0':
+            party_dist_map[dept] = name
+        else:
+            party_village_map[f"{dept}_{li}"] = name
+
+    # 建立政黨列表（政黨票的候選人其實是政黨）
+    parties = []
+    seen_nos = set()
+    for _, row in df_cand_nat.iterrows():
+        no = row[5]
+        if no in seen_nos:
+            continue
+        seen_nos.add(no)
+        # 政黨票的「候選人」其實是政黨名稱
+        party_name = row[6] if pd.notna(row[6]) else get_party_name(row[7])
+        parties.append({
+            'no': no,
+            'name': party_name,
+            'party': party_name
+        })
+
+    parties = sorted(parties, key=lambda x: int(x['no']) if str(x['no']).isdigit() else 0)
+
+    if not parties:
+        return None
+
+    # 建立統計資料對照 (使用村里彙總列 tbox=0)
+    party_stats_by_village = {}
+    for _, row in df_prof.iterrows():
+        dept = row[3]
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{dept}_{li}"
+        party_stats_by_village[key] = {
+            '有效票數': clean_number(row[6]),
+            '無效票數': clean_number(row[7]),
+            '投票數': clean_number(row[8]),
+            '選舉人數': clean_number(row[9]) if len(row) > 9 else 0,
+        }
+
+    # 計算衍生欄位
+    for key in party_stats_by_village:
+        stats = party_stats_by_village[key]
+        total_votes = stats['投票數']
+        eligible_voters = stats['選舉人數']
+        stats['已領未投票數'] = 0
+        stats['發出票數'] = total_votes
+        stats['用餘票數'] = eligible_voters - total_votes if eligible_voters > total_votes else 0
+        stats['投票率'] = round(total_votes / eligible_voters * 100, 2) if eligible_voters > 0 else 0
+
+    # 使用村里彙總列的票數
+    party_votes_by_village = defaultdict(lambda: defaultdict(int))
+    for _, row in df_tks.iterrows():
+        li = row[4]
+        tbox = row[5]
+
+        if li == '0000' or li == '0':
+            continue
+        if tbox != '0' and tbox != '0000':
+            continue
+
+        key = f"{row[3]}_{li}"
+        party_votes_by_village[key][row[6]] = clean_number(row[7])
+
+    if not party_votes_by_village:
+        return None
+
+    # 計算區級和總計彙總
+    party_dept_totals = defaultdict(lambda: {'votes': defaultdict(int), 'stats': defaultdict(int)})
+    party_grand_total = {'votes': defaultdict(int), 'stats': defaultdict(int)}
+
+    for key in party_votes_by_village.keys():
+        parts = key.split('_')
+        dept = parts[0]
+
+        votes_dict = party_votes_by_village[key]
+        stats = party_stats_by_village.get(key, {})
+
+        for party_no, votes in votes_dict.items():
+            party_dept_totals[dept]['votes'][party_no] += votes
+            party_grand_total['votes'][party_no] += votes
+
+        for stat_key in ['有效票數', '無效票數', '投票數', '已領未投票數', '發出票數', '用餘票數', '選舉人數']:
+            party_dept_totals[dept]['stats'][stat_key] += stats.get(stat_key, 0)
+            party_grand_total['stats'][stat_key] += stats.get(stat_key, 0)
+
+    # 計算投票率
+    if party_grand_total['stats']['選舉人數'] > 0:
+        party_grand_total['stats']['投票率'] = round(party_grand_total['stats']['投票數'] / party_grand_total['stats']['選舉人數'] * 100, 2)
+
+    for dept in party_dept_totals:
+        if party_dept_totals[dept]['stats']['選舉人數'] > 0:
+            party_dept_totals[dept]['stats']['投票率'] = round(party_dept_totals[dept]['stats']['投票數'] / party_dept_totals[dept]['stats']['選舉人數'] * 100, 2)
+
+    # 生成資料列
+    party_rows = []
+    current_dept = None
+
+    for key in sorted(party_votes_by_village.keys(), key=lambda x: (x.split('_')[0], x.split('_')[1])):
+        parts = key.split('_')
+        dept, li = parts[0], parts[1]
+
+        dist_name_val = party_dist_map.get(dept, dept)
+        village_name = party_village_map.get(key, li)
+
+        row_data = {
+            '行政區別': dist_name_val if dept != current_dept else '',
+            '村里別': village_name,
+        }
+
+        votes_dict = party_votes_by_village[key]
+        for i, party in enumerate(parties):
+            row_data[f'候選人{i+1}'] = votes_dict.get(party['no'], 0)
+
+        stats = party_stats_by_village.get(key, {})
+        row_data['有效票數'] = stats.get('有效票數', 0)
+        row_data['無效票數'] = stats.get('無效票數', 0)
+        row_data['投票數'] = stats.get('投票數', 0)
+        row_data['已領未投票數'] = stats.get('已領未投票數', 0)
+        row_data['發出票數'] = stats.get('發出票數', 0)
+        row_data['用餘票數'] = stats.get('用餘票數', 0)
+        row_data['選舉人數'] = stats.get('選舉人數', 0)
+        row_data['投票率'] = stats.get('投票率', 0)
+
+        party_rows.append(row_data)
+        current_dept = dept
+
+    if party_rows:
+        return {
+            'data': pd.DataFrame(party_rows),
+            'candidates': parties,  # 使用 candidates 保持一致性
+            'dept_totals': party_dept_totals,
+            'grand_total': party_grand_total,
+            'dist_map': party_dist_map,
+        }
+
+    return None

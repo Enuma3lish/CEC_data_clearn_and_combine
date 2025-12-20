@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python process_2014.py:*)",
+      "Bash(where:*)",
+      "Bash(python3:*)",
+      "Bash(py -3:*)",
+      "Bash(dir /b \"C:\\Users\\MeloWu\\Desktop\\CEC_data_clearn_and_combine\\data\")",
+      "Bash(dir /b \"C:\\Users\\MeloWu\\Desktop\\CEC_data_clearn_and_combine\")",
+      "Bash(powershell:*)",
+      "Bash(python main.py:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(del \"C:\\Users\\MeloWu\\Desktop\\CEC_data_clearn_and_combine\\generate_election_tables.py\")",
+      "WebFetch(domain:db.cec.gov.tw)",
+      "WebSearch",
+      "WebFetch(domain:zh.wikipedia.org)",
+      "WebFetch(domain:votetw.com)",
+      "Bash(chcp 65001)",
+      "Bash(dir /b \"C:\\Users\\MeloWu\\Desktop\\CEC_data_clearn_and_combine\\voteData\\2014-103年地方公職人員選舉\")",
+      "Bash(dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
