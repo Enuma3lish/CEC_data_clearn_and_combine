@@ -910,6 +910,11 @@ def create_national_election_file(output_dir, year, cities=None):
 
     output_path = os.path.join(output_dir, f'全國{year}選舉.xlsx')
 
+    # 如果檔案已存在，先刪除
+    if os.path.exists(output_path):
+        os.remove(output_path)
+        print(f"  已刪除舊檔案: {output_path}")
+
     all_data = []
 
     # 取得該年份的選舉類型配置
@@ -1212,7 +1217,7 @@ def create_city_combined_file(output_dir, city_name, city_code, years=None, citi
     return None
 
 
-def _extract_election_data(df, year, election_name, city_name, area_name, MAX_CANDIDATES, is_legislator=False):
+def _extract_election_data(df, year, election_name, city_name, area_name, max_candidates, is_legislator=False):
     """從 Excel 資料框架中提取選舉資料
 
     Args:
