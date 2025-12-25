@@ -22,11 +22,12 @@ from .utils import read_csv_clean, clean_number, load_party_map, get_party_name
 from .election_types import STAT_FIELDS
 
 
-def load_election_data(data_dir):
+def load_election_data(data_dir, file_suffix=''):
     """載入選舉原始 CSV 資料
 
     Args:
         data_dir: 選舉資料目錄路徑
+        file_suffix: 檔名後綴（如 2016 年的 _P1, _T1 等）
 
     Returns:
         tuple: (df_base, df_cand, df_tks, df_prof) 或 None
@@ -38,11 +39,22 @@ def load_election_data(data_dir):
     # 載入政黨對照表
     load_party_map(os.path.join(data_dir, 'elpaty.csv'))
 
+    # 自動偵測檔案格式（處理 2016 年的特殊檔名）
+    if not file_suffix:
+        # 檢查是否有帶後綴的檔案
+        import glob
+        pattern = os.path.join(data_dir, 'elbase_*.csv')
+        matches = glob.glob(pattern)
+        if matches:
+            # 從第一個匹配的檔案提取後綴
+            filename = os.path.basename(matches[0])
+            file_suffix = filename.replace('elbase', '').replace('.csv', '')
+
     # 讀取 CSV 檔案
-    df_base = read_csv_clean(os.path.join(data_dir, 'elbase.csv'))
-    df_cand = read_csv_clean(os.path.join(data_dir, 'elcand.csv'))
-    df_tks = read_csv_clean(os.path.join(data_dir, 'elctks.csv'))
-    df_prof = read_csv_clean(os.path.join(data_dir, 'elprof.csv'))
+    df_base = read_csv_clean(os.path.join(data_dir, f'elbase{file_suffix}.csv'))
+    df_cand = read_csv_clean(os.path.join(data_dir, f'elcand{file_suffix}.csv'))
+    df_tks = read_csv_clean(os.path.join(data_dir, f'elctks{file_suffix}.csv'))
+    df_prof = read_csv_clean(os.path.join(data_dir, f'elprof{file_suffix}.csv'))
 
     return df_base, df_cand, df_tks, df_prof
 

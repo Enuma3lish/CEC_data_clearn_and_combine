@@ -143,6 +143,142 @@ ELECTION_TYPES_2014 = {
     ),
 }
 
+# 2016 選舉類型配置
+ELECTION_TYPES_2016 = {
+    # 總統
+    'president_2016': ElectionType(
+        key='president_2016',
+        name='總統選舉',
+        year=2016,
+        data_folder='總統',
+        output_template='{year}_總統候選人得票數一覽表_各村里_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        is_national_candidate=True,
+        has_combined_name=True,
+        election_category='president',
+        merge_key='president',
+    ),
+    # 區域立委
+    'legislator_2016': ElectionType(
+        key='legislator_2016',
+        name='區域立法委員選舉',
+        year=2016,
+        data_folder='區域立委',
+        output_template='{year}_區域立委_各村里得票數_{city_name}.xlsx',
+        is_multi_area=True,
+        use_village_summary=True,
+        election_category='legislator',
+        merge_key='legislator',
+    ),
+    # 山地原住民立委
+    'mountain_legislator_2016': ElectionType(
+        key='mountain_legislator_2016',
+        name='山地原住民立委選舉',
+        year=2016,
+        data_folder='山地立委',
+        output_template='{year}_山地原住民立委_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        is_national_candidate=True,
+        election_category='mountain_legislator',
+        merge_key='mountain_legislator',
+    ),
+    # 平地原住民立委
+    'plain_legislator_2016': ElectionType(
+        key='plain_legislator_2016',
+        name='平地原住民立委選舉',
+        year=2016,
+        data_folder='平地立委',
+        output_template='{year}_平地原住民立委_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        is_national_candidate=True,
+        election_category='plain_legislator',
+        merge_key='plain_legislator',
+    ),
+    # 政黨票
+    'party_vote_2016': ElectionType(
+        key='party_vote_2016',
+        name='政黨票',
+        year=2016,
+        data_folder='不分區政黨',
+        output_template='{year}_政黨票_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        is_national_candidate=True,
+        is_party_vote=True,
+        election_category='party_vote',
+        merge_key='party_vote',
+    ),
+}
+
+# 2018 選舉類型配置
+ELECTION_TYPES_2018 = {
+    # 直轄市區域議員
+    'council_municipality_2018': ElectionType(
+        key='council_municipality_2018',
+        name='直轄市區域議員選舉',
+        year=2018,
+        data_folder='直轄市區域議員',
+        output_template='{year}_直轄市區域議員_各投開票所得票數_{city_name}.xlsx',
+        is_multi_area=True,
+        use_polling_station=True,
+        use_village_summary=False,
+        election_category='council',
+        merge_key='council',
+    ),
+    # 縣市區域議員
+    'council_county_2018': ElectionType(
+        key='council_county_2018',
+        name='縣市區域議員選舉',
+        year=2018,
+        data_folder='縣市區域議員',
+        output_template='{year}_縣市區域議員_各投開票所得票數_{city_name}.xlsx',
+        is_multi_area=True,
+        use_polling_station=True,
+        use_village_summary=False,
+        election_category='council',
+        merge_key='council',
+    ),
+    # 直轄市市長
+    'mayor_municipality_2018': ElectionType(
+        key='mayor_municipality_2018',
+        name='直轄市市長選舉',
+        year=2018,
+        data_folder='直轄市市長',
+        output_template='{year}_直轄市市長_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        election_category='mayor',
+        merge_key='mayor',
+    ),
+    # 縣市市長
+    'mayor_county_2018': ElectionType(
+        key='mayor_county_2018',
+        name='縣市市長選舉',
+        year=2018,
+        data_folder='縣市市長',
+        output_template='{year}_縣市市長_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        election_category='mayor',
+        merge_key='mayor',
+    ),
+    # 鄉鎮市長
+    'township_mayor_2018': ElectionType(
+        key='township_mayor_2018',
+        name='鄉鎮市長選舉',
+        year=2018,
+        data_folder='縣市鄉鎮市長',
+        output_template='{year}_鄉鎮市長_各村里得票數_{city_name}.xlsx',
+        is_multi_area=True,
+        use_village_summary=True,
+        election_category='township_mayor',
+        merge_key='township_mayor',
+    ),
+}
+
 # 2020 選舉類型配置
 ELECTION_TYPES_2020 = {
     # 總統
@@ -213,13 +349,160 @@ ELECTION_TYPES_2020 = {
     ),
 }
 
+# 2022 選舉類型配置（使用代碼格式資料夾）
+ELECTION_TYPES_2022 = {
+    # 直轄市市長
+    'mayor_municipality_2022': ElectionType(
+        key='mayor_municipality_2022',
+        name='直轄市市長選舉',
+        year=2022,
+        data_folder='C1/prv',
+        output_template='{year}_直轄市市長_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        election_category='mayor',
+        merge_key='mayor',
+    ),
+    # 縣市市長
+    'mayor_county_2022': ElectionType(
+        key='mayor_county_2022',
+        name='縣市市長選舉',
+        year=2022,
+        data_folder='C1/city',
+        output_template='{year}_縣市市長_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        election_category='mayor',
+        merge_key='mayor',
+    ),
+    # 直轄市區域議員
+    'council_municipality_2022': ElectionType(
+        key='council_municipality_2022',
+        name='直轄市區域議員選舉',
+        year=2022,
+        data_folder='T1/prv',
+        output_template='{year}_直轄市區域議員_各投開票所得票數_{city_name}.xlsx',
+        is_multi_area=True,
+        use_polling_station=True,
+        use_village_summary=False,
+        election_category='council',
+        merge_key='council',
+    ),
+    # 縣市區域議員
+    'council_county_2022': ElectionType(
+        key='council_county_2022',
+        name='縣市區域議員選舉',
+        year=2022,
+        data_folder='T1/city',
+        output_template='{year}_縣市區域議員_各投開票所得票數_{city_name}.xlsx',
+        is_multi_area=True,
+        use_polling_station=True,
+        use_village_summary=False,
+        election_category='council',
+        merge_key='council',
+    ),
+    # 鄉鎮市長
+    'township_mayor_2022': ElectionType(
+        key='township_mayor_2022',
+        name='鄉鎮市長選舉',
+        year=2022,
+        data_folder='D1',
+        output_template='{year}_鄉鎮市長_各村里得票數_{city_name}.xlsx',
+        is_multi_area=True,
+        use_village_summary=True,
+        election_category='township_mayor',
+        merge_key='township_mayor',
+    ),
+}
+
+# 2024 選舉類型配置
+ELECTION_TYPES_2024 = {
+    # 總統
+    'president_2024': ElectionType(
+        key='president_2024',
+        name='總統選舉',
+        year=2024,
+        data_folder='總統',
+        output_template='{year}_總統候選人得票數一覽表_各村里_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        is_national_candidate=True,
+        has_combined_name=True,
+        election_category='president',
+        merge_key='president',
+    ),
+    # 區域立委
+    'legislator_2024': ElectionType(
+        key='legislator_2024',
+        name='區域立法委員選舉',
+        year=2024,
+        data_folder='區域立委',
+        output_template='{year}_區域立委_各村里得票數_{city_name}.xlsx',
+        is_multi_area=True,
+        use_village_summary=True,
+        election_category='legislator',
+        merge_key='legislator',
+    ),
+    # 山地原住民立委
+    'mountain_legislator_2024': ElectionType(
+        key='mountain_legislator_2024',
+        name='山地原住民立委選舉',
+        year=2024,
+        data_folder='山地立委',
+        output_template='{year}_山地原住民立委_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        is_national_candidate=True,
+        election_category='mountain_legislator',
+        merge_key='mountain_legislator',
+    ),
+    # 平地原住民立委
+    'plain_legislator_2024': ElectionType(
+        key='plain_legislator_2024',
+        name='平地原住民立委選舉',
+        year=2024,
+        data_folder='平地立委',
+        output_template='{year}_平地原住民立委_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        is_national_candidate=True,
+        election_category='plain_legislator',
+        merge_key='plain_legislator',
+    ),
+    # 政黨票
+    'party_vote_2024': ElectionType(
+        key='party_vote_2024',
+        name='政黨票',
+        year=2024,
+        data_folder='不分區政黨',
+        output_template='{year}_政黨票_各村里得票數_{city_name}.xlsx',
+        is_multi_area=False,
+        use_village_summary=True,
+        is_national_candidate=True,
+        is_party_vote=True,
+        election_category='party_vote',
+        merge_key='party_vote',
+    ),
+}
+
 # 所有選舉類型
-ALL_ELECTION_TYPES = {**ELECTION_TYPES_2014, **ELECTION_TYPES_2020}
+ALL_ELECTION_TYPES = {
+    **ELECTION_TYPES_2014,
+    **ELECTION_TYPES_2016,
+    **ELECTION_TYPES_2018,
+    **ELECTION_TYPES_2020,
+    **ELECTION_TYPES_2022,
+    **ELECTION_TYPES_2024,
+}
 
 # 依年份分類
 ELECTION_TYPES_BY_YEAR = {
     2014: ELECTION_TYPES_2014,
+    2016: ELECTION_TYPES_2016,
+    2018: ELECTION_TYPES_2018,
     2020: ELECTION_TYPES_2020,
+    2022: ELECTION_TYPES_2022,
+    2024: ELECTION_TYPES_2024,
 }
 
 
@@ -256,7 +539,31 @@ MERGE_CONFIGS = {
         ('council', '縣市議員選舉'),
         ('township_mayor', '鄉鎮市長選舉'),
     ],
+    2016: [
+        ('president', '總統選舉'),
+        ('legislator', '區域立法委員選舉'),
+        ('mountain_legislator', '山地原住民立委選舉'),
+        ('plain_legislator', '平地原住民立委選舉'),
+        ('party_vote', '政黨票'),
+    ],
+    2018: [
+        ('mayor', '縣市長選舉'),
+        ('council', '縣市議員選舉'),
+        ('township_mayor', '鄉鎮市長選舉'),
+    ],
     2020: [
+        ('president', '總統選舉'),
+        ('legislator', '區域立法委員選舉'),
+        ('mountain_legislator', '山地原住民立委選舉'),
+        ('plain_legislator', '平地原住民立委選舉'),
+        ('party_vote', '政黨票'),
+    ],
+    2022: [
+        ('mayor', '縣市長選舉'),
+        ('council', '縣市議員選舉'),
+        ('township_mayor', '鄉鎮市長選舉'),
+    ],
+    2024: [
         ('president', '總統選舉'),
         ('legislator', '區域立法委員選舉'),
         ('mountain_legislator', '山地原住民立委選舉'),
@@ -281,7 +588,47 @@ FILE_PATTERNS = {
             'county': '{year}_鄉鎮市長_各村里得票數_{city_name}.xlsx',
         },
     },
+    2016: {
+        'president': '{year}_總統候選人得票數一覽表_各村里_{city_name}.xlsx',
+        'legislator': '{year}_區域立委_各村里得票數_{city_name}.xlsx',
+        'mountain_legislator': '{year}_山地原住民立委_各村里得票數_{city_name}.xlsx',
+        'plain_legislator': '{year}_平地原住民立委_各村里得票數_{city_name}.xlsx',
+        'party_vote': '{year}_政黨票_各村里得票數_{city_name}.xlsx',
+    },
+    2018: {
+        'council': {
+            'municipality': '{year}_直轄市區域議員_各投開票所得票數_{city_name}.xlsx',
+            'county': '{year}_縣市區域議員_各投開票所得票數_{city_name}.xlsx',
+        },
+        'mayor': {
+            'municipality': '{year}_直轄市市長_各村里得票數_{city_name}.xlsx',
+            'county': '{year}_縣市市長_各村里得票數_{city_name}.xlsx',
+        },
+        'township_mayor': {
+            'county': '{year}_鄉鎮市長_各村里得票數_{city_name}.xlsx',
+        },
+    },
     2020: {
+        'president': '{year}_總統候選人得票數一覽表_各村里_{city_name}.xlsx',
+        'legislator': '{year}_區域立委_各村里得票數_{city_name}.xlsx',
+        'mountain_legislator': '{year}_山地原住民立委_各村里得票數_{city_name}.xlsx',
+        'plain_legislator': '{year}_平地原住民立委_各村里得票數_{city_name}.xlsx',
+        'party_vote': '{year}_政黨票_各村里得票數_{city_name}.xlsx',
+    },
+    2022: {
+        'council': {
+            'municipality': '{year}_直轄市區域議員_各投開票所得票數_{city_name}.xlsx',
+            'county': '{year}_縣市區域議員_各投開票所得票數_{city_name}.xlsx',
+        },
+        'mayor': {
+            'municipality': '{year}_直轄市市長_各村里得票數_{city_name}.xlsx',
+            'county': '{year}_縣市市長_各村里得票數_{city_name}.xlsx',
+        },
+        'township_mayor': {
+            'county': '{year}_鄉鎮市長_各村里得票數_{city_name}.xlsx',
+        },
+    },
+    2024: {
         'president': '{year}_總統候選人得票數一覽表_各村里_{city_name}.xlsx',
         'legislator': '{year}_區域立委_各村里得票數_{city_name}.xlsx',
         'mountain_legislator': '{year}_山地原住民立委_各村里得票數_{city_name}.xlsx',
