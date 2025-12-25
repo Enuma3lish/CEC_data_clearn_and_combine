@@ -50,7 +50,11 @@ from .config import (
 from .election_types import (
     ElectionType,
     ELECTION_TYPES_2014,
+    ELECTION_TYPES_2016,
+    ELECTION_TYPES_2018,
     ELECTION_TYPES_2020,
+    ELECTION_TYPES_2022,
+    ELECTION_TYPES_2024,
     ALL_ELECTION_TYPES,
     ELECTION_TYPES_BY_YEAR,
     get_election_types,
